@@ -104,7 +104,7 @@
   .macro-tile { background: #FFFFFF; border: 1px solid var(--border); border-radius: 12px; padding: 10px 6px; text-align: center; }
   .macro-tile .val { font-size: 15px; font-weight: 700; color: var(--green); }
   .macro-tile .lbl { font-size: 10px; color: var(--muted); margin-top: 2px; }
-  input[type="text"], input[type="email"], input[type="password"] {
+  input[type="text"], input[type="email"], input[type="password"], textarea {
     width: 100%;
     box-sizing: border-box;
     font-family: 'Work Sans', sans-serif;
@@ -116,7 +116,8 @@
     background: #FFFFFF;
     outline: none;
   }
-  input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus {
+  textarea { resize: vertical; min-height: 90px; }
+  input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus, textarea:focus {
     border-color: var(--green);
   }
   ::-webkit-scrollbar { width: 6px; }
@@ -214,7 +215,13 @@ let state = {
   horarios: {},
   horarioPickerDay: null,
   paymentError: '',
-  lastPaymentId: null
+  lastPaymentId: null,
+  perfilMetodosOpen: false,
+  perfilInstitucionOpen: false,
+  ayudaOpen: false,
+  ayudaError: '',
+  historialTab: 'proximos',
+  profileInfoError: ''
 };
 
 function setState(patch) {
@@ -335,6 +342,30 @@ function computeWeekTotalNumber(diasConPedido) {
   return { total, complete };
 }
 
+// Próxima recolección: si hoy (Lunes-Viernes) ya tiene pedido, es esa.
+// Si no, busca el siguiente día de la semana que sí tenga pedido.
+function computeProximaRecoleccion() {
+  const jsDay = new Date().getDay(); // 0=Dom,1=Lun,...,6=Sáb
+  const todayIndex = (jsDay >= 1 && jsDay <= 5) ? jsDay - 1 : null;
+  const itemFor = (idx) => state.weekOrder[DIAS[idx]] || null;
+
+  if (todayIndex !== null) {
+    const hoy = itemFor(todayIndex);
+    if (hoy) return { dia: DIAS[todayIndex], item: hoy, esHoy: true };
+  }
+
+  const start = todayIndex !== null ? todayIndex + 1 : 0;
+  for (let i = start; i < DIAS.length; i++) {
+    const item = itemFor(i);
+    if (item) return { dia: DIAS[i], item, esHoy: false };
+  }
+  for (let i = 0; i < (todayIndex ?? DIAS.length); i++) {
+    const item = itemFor(i);
+    if (item) return { dia: DIAS[i], item, esHoy: false };
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------
 // Autenticación (simulada en memoria — sin backend real)
 // ---------------------------------------------------------------------
@@ -363,8 +394,8 @@ function submitAuth() {
       setState({ authError: 'Ya existe una cuenta con ese correo. Inicia sesión.', authName: name, authEmail: email, authPassword: password });
       return;
     }
-    REGISTERED_USERS.push({ name, email, password });
-    setState({ screen: 'inicio', user: { name, email }, authError: '', authName: '', authEmail: '', authPassword: '' });
+    REGISTERED_USERS.push({ name, email, password, phone: '' });
+    setState({ screen: 'inicio', user: { name, email, phone: '' }, authError: '', authName: '', authEmail: '', authPassword: '' });
   } else {
     if (!email || !password) {
       setState({ authError: 'Completa correo y contraseña.', authEmail: email, authPassword: password });
@@ -375,7 +406,7 @@ function submitAuth() {
       setState({ authError: 'Correo o contraseña incorrectos.', authEmail: email, authPassword: password });
       return;
     }
-    setState({ screen: 'inicio', user: { name: found.name, email: found.email }, authError: '', authName: '', authEmail: '', authPassword: '' });
+    setState({ screen: 'inicio', user: { name: found.name, email: found.email, phone: found.phone || '' }, authError: '', authName: '', authEmail: '', authPassword: '' });
   }
 }
 
@@ -432,7 +463,70 @@ function logout() {
     wholeWeek: false,
     horarioEnabled: false,
     paymentError: '',
-    lastPaymentId: null
+    lastPaymentId: null,
+    perfilMetodosOpen: false,
+    perfilInstitucionOpen: false,
+    ayudaOpen: false,
+    ayudaError: '',
+    historialTab: 'proximos',
+    profileInfoError: ''
+  });
+}
+
+const AYUDA_CORREO = 'zano.ayuda@gmail.com';
+
+function enviarAyuda() {
+  const textarea = document.getElementById('ayuda-mensaje');
+  const mensaje = textarea ? textarea.value.trim() : '';
+  if (!mensaje) {
+    setState({ ayudaError: 'Escribe tu mensaje antes de enviarlo.' });
+    return;
+  }
+  const nombre = state.user ? state.user.name : '';
+  const correoUsuario = state.user ? state.user.email : '';
+  const cuerpo = mensaje + '\n\n---\nEnviado desde la app ZANO\nNombre: ' + nombre + '\nCorreo: ' + correoUsuario;
+  const asunto = 'Ayuda ZANO';
+  const mailtoUrl = 'mailto:' + AYUDA_CORREO + '?subject=' + encodeURIComponent(asunto) + '&body=' + encodeURIComponent(cuerpo);
+  window.location.href = mailtoUrl;
+  setState({ ayudaError: '' });
+}
+
+function savePerfilInfo() {
+  const emailInput = document.getElementById('profile-email');
+  const phoneInput = document.getElementById('profile-phone');
+  const passwordInput = document.getElementById('profile-password');
+  const email = (emailInput ? emailInput.value.trim() : '').toLowerCase();
+  const phone = phoneInput ? phoneInput.value.trim() : '';
+  const password = passwordInput ? passwordInput.value : '';
+
+  if (!email || !password) {
+    setState({ profileInfoError: 'Completa correo y contraseña.' });
+    return;
+  }
+  if (!email.includes('@') || !email.includes('.')) {
+    setState({ profileInfoError: 'Ingresa un correo válido.' });
+    return;
+  }
+  if (password.length < 6) {
+    setState({ profileInfoError: 'La contraseña debe tener al menos 6 caracteres.' });
+    return;
+  }
+  // otro usuario ya está usando ese correo
+  if (REGISTERED_USERS.some((u) => u.email === email && u.email !== state.user.email)) {
+    setState({ profileInfoError: 'Ya hay otra cuenta usando ese correo.' });
+    return;
+  }
+
+  const rec = REGISTERED_USERS.find((u) => u.email === state.user.email);
+  if (rec) {
+    rec.email = email;
+    rec.phone = phone;
+    rec.password = password;
+  }
+  setState({
+    user: { ...state.user, email, phone },
+    profileInfoError: '',
+    screen: 'perfil'
   });
 }
 
@@ -545,7 +639,7 @@ function renderAuth() {
 // ---------------------------------------------------------------------
 function renderInicio() {
   const diasConPedido = computeDiasConPedido();
-  const plantelLabel = state.plantel ?? 'Elige tu plantel';
+  const plantelLabel = state.plantel ?? 'Elige tu institución';
   return `
     <div style="display:flex;flex-direction:column;gap:22px;">
       <div style="display:flex;align-items:center;gap:8px;">
@@ -919,61 +1013,171 @@ function renderPagoOk() {
 // Render: Perfil
 // ---------------------------------------------------------------------
 function renderPerfil() {
-  const historial = [
+  // "Pedidos próximos" viene de tu semana armada de verdad; "pedidos pasados"
+  // sigue siendo un placeholder — esta app aún no guarda historial real entre sesiones.
+  const proximos = computeDiasConPedido().filter((d) => d.hasItem);
+  const pasados = [
     { semana: 'Semana del [fecha]', detalle: '5 comidas · Recolectado', estado: 'Entregado' },
     { semana: 'Semana del [fecha]', detalle: '5 comidas · Recolectado', estado: 'Entregado' }
   ];
-  const opciones = ['Mi plantel', 'Métodos de pago', 'Ayuda'];
+  const isProximos = state.historialTab === 'proximos';
+
+  const metodosPago = [
+    { label: 'Tarjeta de crédito o débito', detalle: 'Vía PayPal, al momento de pagar' },
+    { label: 'PayPal', detalle: 'Con tu cuenta o saldo de PayPal' }
+  ];
+
+  const proxima = computeProximaRecoleccion();
+
   return `
     <div style="display:flex;flex-direction:column;gap:18px;">
       <h1 style="margin:0;font-family:'Fraunces',serif;font-weight:600;font-size:28px;color:#1F2420;">Perfil</h1>
 
-      <div style="display:flex;align-items:center;gap:14px;">
+      <button onclick="setState({screen:'perfilInfo'})" style="display:flex;align-items:center;gap:14px;text-align:left;">
         <div style="width:56px;height:56px;border-radius:999px;background:#E4ECE1;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
           ${icon('user', { w: 26, h: 26, stroke: '#2B5D3F', sw: 1.7 })}
         </div>
-        <div style="display:flex;flex-direction:column;gap:2px;">
+        <div style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;">
           <span style="font-size:16px;font-weight:700;color:#1F2420;">${esc(state.user ? state.user.name : '[Tu nombre]')}</span>
           <span style="font-size:12.5px;color:#6B7268;">${esc(state.user ? state.user.email : '')}${state.plantel ? ' · ' + esc(state.plantel) : ''}</span>
         </div>
-      </div>
+        ${icon('chevronRight', { w: 18, h: 18 })}
+      </button>
 
       <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:8px;">
         <span style="font-size:12.5px;color:#6B7268;">Tu próxima recolección</span>
+        ${proxima ? `
         <div class="row">
-          <span style="font-size:16px;font-weight:700;color:#1F2420;">[Día] · [Plantel]</span>
-          <span style="font-size:11px;font-weight:700;color:#2B5D3F;background:#E4ECE1;border-radius:999px;padding:5px 10px;">Confirmado</span>
-        </div>
+          <div style="display:flex;flex-direction:column;gap:2px;">
+            <span style="font-size:16px;font-weight:700;color:#1F2420;">${proxima.dia} · ${esc(state.plantel ?? 'Elige tu institución')}</span>
+            <span style="font-size:11.5px;color:#6B7268;">${esc(proxima.item.name)}${state.horarios[proxima.dia] ? ' · ' + esc(state.horarios[proxima.dia]) : ''}</span>
+          </div>
+          <span style="font-size:11px;font-weight:700;color:#2B5D3F;background:#E4ECE1;border-radius:999px;padding:5px 10px;white-space:nowrap;">${proxima.esHoy ? 'Hoy' : 'Confirmado'}</span>
+        </div>` : `
+        <span style="font-size:13.5px;color:#6B7268;">Aún no tienes pedidos programados — ve a Mi semana para armar el tuyo.</span>`}
       </div>
 
       <div>
-        <span style="font-size:14.5px;font-weight:700;color:#1F2420;">Historial de pedidos</span>
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">
-          ${historial.map((h) => `
-            <div class="card row" style="padding:14px;">
-              <div style="display:flex;flex-direction:column;gap:2px;">
-                <span style="font-size:13.5px;font-weight:600;color:#1F2420;">${h.semana}</span>
-                <span style="font-size:11.5px;color:#6B7268;">${h.detalle}</span>
+        <div style="display:flex;background:#F0ECE0;border-radius:999px;padding:4px;gap:4px;margin-bottom:10px;">
+          <button onclick="setState({historialTab:'proximos'})" style="flex:1;padding:9px;border-radius:999px;font-size:12.5px;font-weight:700;background:${isProximos ? '#FFFFFF' : 'transparent'};color:${isProximos ? '#1F2420' : '#6B7268'};">Pedidos próximos</button>
+          <button onclick="setState({historialTab:'pasados'})" style="flex:1;padding:9px;border-radius:999px;font-size:12.5px;font-weight:700;background:${!isProximos ? '#FFFFFF' : 'transparent'};color:${!isProximos ? '#1F2420' : '#6B7268'};">Pedidos pasados</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${isProximos ? (
+            proximos.length > 0 ? proximos.map((d) => `
+              <div class="card row" style="padding:14px;">
+                <div style="display:flex;flex-direction:column;gap:2px;">
+                  <span style="font-size:13.5px;font-weight:600;color:#1F2420;">${d.dia}</span>
+                  <span style="font-size:11.5px;color:#6B7268;">${esc(d.label)}</span>
+                </div>
+                <span style="font-size:11px;font-weight:700;color:#2B5D3F;background:#E4ECE1;border-radius:999px;padding:5px 10px;">${esc(d.price)}</span>
               </div>
-              <span style="font-size:11px;font-weight:700;color:#6B7268;background:#F0ECE0;border-radius:999px;padding:5px 10px;">${h.estado}</span>
-            </div>
-          `).join('')}
+            `).join('') : `<p style="margin:0;font-size:12.5px;color:#6B7268;">No tienes pedidos próximos todavía.</p>`
+          ) : (
+            pasados.map((h) => `
+              <div class="card row" style="padding:14px;">
+                <div style="display:flex;flex-direction:column;gap:2px;">
+                  <span style="font-size:13.5px;font-weight:600;color:#1F2420;">${h.semana}</span>
+                  <span style="font-size:11.5px;color:#6B7268;">${h.detalle}</span>
+                </div>
+                <span style="font-size:11px;font-weight:700;color:#6B7268;background:#F0ECE0;border-radius:999px;padding:5px 10px;">${h.estado}</span>
+              </div>
+            `).join('')
+          )}
         </div>
       </div>
 
       <div>
         <span style="font-size:14.5px;font-weight:700;color:#1F2420;">Cuenta</span>
         <div class="card" style="display:flex;flex-direction:column;margin-top:10px;overflow:hidden;">
-          ${opciones.map((o) => `
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid #F0ECE0;">
-              <span style="font-size:14px;font-weight:600;color:#1F2420;">${o}</span>
-              ${icon('chevronRight', { w: 18, h: 18 })}
-            </div>
-          `).join('')}
+          <button onclick="setState({perfilInstitucionOpen: !state.perfilInstitucionOpen, perfilMetodosOpen:false})" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid #F0ECE0;text-align:left;">
+            <span style="font-size:14px;font-weight:600;color:#1F2420;">Mi institución</span>
+            ${icon(state.perfilInstitucionOpen ? 'chevronDown' : 'chevronRight', { w: 18, h: 18 })}
+          </button>
+          ${state.perfilInstitucionOpen ? `
+          <div style="display:flex;flex-direction:column;">
+            ${PLANTELES.map((name) => {
+              const sel = state.plantel === name;
+              return `<button onclick='setState({plantel:${JSON.stringify(name)}})' style="width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;padding:13px 16px 13px 28px;border-bottom:1px solid #F0ECE0;background:${sel ? '#E4ECE1' : '#FFFFFF'};text-align:left;">
+                <span style="font-size:13px;font-weight:600;color:${sel ? '#2B5D3F' : '#1F2420'};">${esc(name)}</span>
+                ${sel ? icon('check', { w: 15, h: 15, stroke: '#2B5D3F', sw: 2.2 }) : ''}
+              </button>`;
+            }).join('')}
+          </div>` : ''}
+
+          <button onclick="setState({perfilMetodosOpen: !state.perfilMetodosOpen, perfilInstitucionOpen:false})" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid #F0ECE0;text-align:left;">
+            <span style="font-size:14px;font-weight:600;color:#1F2420;">Métodos de pago</span>
+            ${icon(state.perfilMetodosOpen ? 'chevronDown' : 'chevronRight', { w: 18, h: 18 })}
+          </button>
+          ${state.perfilMetodosOpen ? `
+          <div style="display:flex;flex-direction:column;">
+            ${metodosPago.map((m) => `
+              <div style="padding:12px 16px 12px 28px;border-bottom:1px solid #F0ECE0;display:flex;flex-direction:column;gap:1px;">
+                <span style="font-size:13px;font-weight:600;color:#1F2420;">${esc(m.label)}</span>
+                <span style="font-size:11px;color:#6B7268;">${esc(m.detalle)}</span>
+              </div>
+            `).join('')}
+          </div>` : ''}
+
+          <button onclick="setState({ayudaOpen: !state.ayudaOpen, perfilInstitucionOpen:false, perfilMetodosOpen:false, ayudaError:''})" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:15px 16px;text-align:left;">
+            <span style="font-size:14px;font-weight:600;color:#1F2420;">Ayuda</span>
+            ${icon(state.ayudaOpen ? 'chevronDown' : 'chevronRight', { w: 18, h: 18 })}
+          </button>
+          ${state.ayudaOpen ? `
+          <div style="padding:4px 16px 16px;display:flex;flex-direction:column;gap:10px;">
+            <p style="margin:0;font-size:11.5px;line-height:1.4;color:#6B7268;">Escribe tu mensaje — se va a abrir tu app de correo para enviarlo a ${AYUDA_CORREO}.</p>
+            <textarea id="ayuda-mensaje" placeholder="¿En qué te podemos ayudar?"></textarea>
+            ${state.ayudaError ? `<span style="font-size:11.5px;color:#B4472A;">${esc(state.ayudaError)}</span>` : ''}
+            <button onclick="enviarAyuda()" style="width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:${ACCENT};color:#FFFFFF;border-radius:12px;padding:13px;font-size:13.5px;font-weight:700;">Enviar por correo</button>
+          </div>` : ''}
         </div>
       </div>
 
       <button onclick="logout()" style="width:100%;text-align:center;padding:14px;font-size:13.5px;font-weight:700;color:#B4472A;">Cerrar sesión</button>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------
+// Render: Información de mi perfil (correo, teléfono, contraseña)
+// ---------------------------------------------------------------------
+function renderPerfilInfo() {
+  const user = state.user || { name: '', email: '', phone: '' };
+  return `
+    <div style="display:flex;flex-direction:column;gap:18px;">
+      <button onclick="setState({screen:'perfil'})" style="display:flex;align-items:center;gap:6px;color:#6B7268;font-size:13px;font-weight:600;">
+        ${icon('chevronRight', { w: 16, h: 16 }).replace('M9 6l6 6-6 6', 'M15 6l-6 6 6 6')} Volver a Perfil
+      </button>
+
+      <div>
+        <h1 style="margin:0 0 6px 0;font-family:'Fraunces',serif;font-weight:600;font-size:26px;color:#1F2420;">Información de tu perfil</h1>
+        <p style="margin:0;font-size:13px;line-height:1.5;color:#6B7268;">${esc(user.name)}</p>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Correo</label>
+          <input id="profile-email" type="email" value="${esc(user.email)}" placeholder="tucorreo@ejemplo.com">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Número telefónico</label>
+          <input id="profile-phone" type="text" value="${esc(user.phone)}" placeholder="81 0000 0000">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Contraseña</label>
+          <input id="profile-password" type="text" value="${esc(REGISTERED_USERS.find((u) => u.email === user.email)?.password ?? '')}" placeholder="Tu contraseña">
+        </div>
+      </div>
+
+      ${state.profileInfoError ? `
+      <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;">
+        ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
+        <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">${esc(state.profileInfoError)}</span>
+      </div>` : ''}
+
+      <button onclick="savePerfilInfo()" class="pill-btn">Guardar cambios</button>
+
+      <p style="margin:0;font-size:11px;line-height:1.5;color:#9AA096;text-align:center;">Esta es una demo: estos datos solo viven en memoria mientras tengas la pestaña abierta.</p>
     </div>
   `;
 }
@@ -984,7 +1188,7 @@ function renderPerfil() {
 function render() {
   const contentEl = document.getElementById('content');
   const navEl = document.getElementById('nav');
-  const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth';
+  const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth' && state.screen !== 'perfilInfo';
 
   let html = '';
   if (state.screen === 'auth') html = renderAuth();
@@ -994,6 +1198,7 @@ function render() {
   else if (state.screen === 'pago') html = renderPago();
   else if (state.screen === 'pagoOk') html = renderPagoOk();
   else if (state.screen === 'perfil') html = renderPerfil();
+  else if (state.screen === 'perfilInfo') html = renderPerfilInfo();
 
   contentEl.style.bottom = showNav ? '84px' : '0px';
   contentEl.innerHTML = html;
