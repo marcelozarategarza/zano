@@ -2,9 +2,20 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#EDE7D8">
 <title>ZANO — App de pedidos</title>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!--
+  Cobro real con PayPal (sin backend): el Client ID de abajo es público (va en el
+  navegador) y es seguro exponerlo — NUNCA pongas aquí un "Secret" de PayPal.
+  Para probar sin dinero real, deja "sb" (modo sandbox/pruebas).
+  Para cobrar de verdad, cámbialo por el Client ID de tu cuenta real (ver README).
+-->
+<script src="https://www.paypal.com/sdk/js?client-id=sb&currency=MXN&intent=capture"></script>
 <style>
   :root {
     --bg: #FAF8F3;
@@ -18,23 +29,51 @@
     --chip: #F0ECE0;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: 'Work Sans', sans-serif; background: #EDE7D8; color: var(--text); display: flex; justify-content: center; padding: 24px 0; }
+  html, body { height: 100%; margin: 0; overscroll-behavior: none; }
+  body {
+    font-family: 'Work Sans', sans-serif;
+    background: #EDE7D8;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 0;
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    overflow: hidden;
+  }
   a { text-decoration: none; color: inherit; }
   button { font: inherit; border: none; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
   h1, p, span, div { -webkit-font-smoothing: antialiased; }
   #phone {
     width: 390px;
     height: 844px;
+    max-height: 100dvh;
     background: var(--bg);
     position: relative;
     overflow: hidden;
     border-radius: 36px;
     box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    touch-action: pan-y;
+  }
+  @media (max-width: 600px) {
+    body { padding: 0; }
+    #phone {
+      width: 100vw;
+      height: 100dvh;
+      max-height: 100dvh;
+      border-radius: 0;
+      box-shadow: none;
+    }
   }
   #content {
     position: absolute;
     top: 0; left: 0; right: 0;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
     box-sizing: border-box;
     padding: 28px 24px 24px;
     display: flex;
@@ -65,6 +104,21 @@
   .macro-tile { background: #FFFFFF; border: 1px solid var(--border); border-radius: 12px; padding: 10px 6px; text-align: center; }
   .macro-tile .val { font-size: 15px; font-weight: 700; color: var(--green); }
   .macro-tile .lbl { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  input[type="text"], input[type="email"], input[type="password"] {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: 'Work Sans', sans-serif;
+    font-size: 14px;
+    color: var(--text);
+    padding: 13px 14px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: #FFFFFF;
+    outline: none;
+  }
+  input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus {
+    border-color: var(--green);
+  }
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-thumb { background: #D8D2C2; border-radius: 999px; }
 </style>
@@ -90,7 +144,6 @@ const PLATOS = [
   { name: 'Huevos Americanos', desc: 'Huevo, tocino, hotcakes y hash browns, con miel o condimento al gusto', price: '$150.00', protein: 49.2, carbs: 90, fat: 46.3, kcal: 974, weight: 600.75, fiber: 4.2 },
   { name: 'Huevos Rancheros', desc: 'Huevo con machaca o chorizo, chile serrano, cebolla, papa, tomate, aguacate, tostadas y frijoles', price: '$175.00', protein: 59.1, carbs: 75.1, fat: 40.3, kcal: 900, weight: 561, fiber: 17.2 },
   { name: 'Poke', desc: 'Bowl fresco con proteína, arroz y vegetales — arma el tuyo', price: '$0.00', protein: 59, carbs: 66.6, fat: 20.6, kcal: 688, weight: 514, fiber: 8.8 },
-  { name: 'Torta Jamonera', desc: 'Torta clásica, lista para llevar', price: '[PRECIO]', kcal: 851, fiber: 12.8 },
   { name: 'Ensalada César', desc: 'Lechuga romana, pollo a la plancha, queso parmesano, crutones y aderezo césar', price: '$170.00', protein: 55.8, carbs: 26.6, fat: 12.4, kcal: 441, weight: 438, fiber: 4.5 },
   { name: 'Pasta Alfredo con Pollo', desc: 'Pechuga de pollo a la plancha con pasta fettuccine en salsa alfredo y queso parmesano', price: '$160.00', protein: 71.6, carbs: 80.7, fat: 32.4, kcal: 901, weight: 503, fiber: 4.8 }
 ];
@@ -132,11 +185,22 @@ const POKE_SERVICE_FEE = 85;
 
 const ACCENT = '#E2703A';
 
+// "Base de datos" simulada de cuentas — solo vive en memoria mientras la
+// pestaña esté abierta (esta app no tiene backend real). Se reinicia al
+// recargar la página.
+const REGISTERED_USERS = [];
+
 // ---------------------------------------------------------------------
 // Estado
 // ---------------------------------------------------------------------
 let state = {
-  screen: 'inicio',        // inicio | menu | semana | pago | pagoOk | perfil
+  screen: 'auth',          // auth | inicio | menu | semana | pago | pagoOk | perfil
+  authMode: 'login',       // login | signup
+  authName: '',
+  authEmail: '',
+  authPassword: '',
+  authError: '',
+  user: null,               // { name, email } una vez con sesión iniciada
   plantel: null,
   pickerOpen: false,
   tab: 'platos',
@@ -145,9 +209,12 @@ let state = {
   ingredients: {},
   pickingDay: null,
   weekOrder: {},
-  wholeWeek: true,
+  wholeWeek: false,
+  horarioEnabled: false,
   horarios: {},
-  horarioPickerDay: null
+  horarioPickerDay: null,
+  paymentError: '',
+  lastPaymentId: null
 };
 
 function setState(patch) {
@@ -257,6 +324,118 @@ function computeWeekTotalLabel(diasConPedido) {
   return faltante ? ('$' + total.toFixed(2) + '+') : ('$' + total.toFixed(2));
 }
 
+// Versión numérica del total (para cobrar) — "complete" indica que TODOS los
+// platillos del pedido tienen precio real (ninguno quedó en '[PRECIO]').
+function computeWeekTotalNumber(diasConPedido) {
+  const diasParaTotal = diasConPedido.filter((d) => d.hasItem);
+  if (diasParaTotal.length === 0) return { total: 0, complete: true };
+  const precios = diasParaTotal.map((d) => parsePriceNum(d.price));
+  const complete = precios.every((n) => n !== null);
+  const total = precios.reduce((sum, n) => sum + (n || 0), 0);
+  return { total, complete };
+}
+
+// ---------------------------------------------------------------------
+// Autenticación (simulada en memoria — sin backend real)
+// ---------------------------------------------------------------------
+function submitAuth() {
+  const nameInput = document.getElementById('auth-name');
+  const emailInput = document.getElementById('auth-email');
+  const passwordInput = document.getElementById('auth-password');
+  const name = nameInput ? nameInput.value.trim() : '';
+  const email = (emailInput ? emailInput.value.trim() : '').toLowerCase();
+  const password = passwordInput ? passwordInput.value : '';
+
+  if (state.authMode === 'signup') {
+    if (!name || !email || !password) {
+      setState({ authError: 'Completa nombre, correo y contraseña.', authName: name, authEmail: email, authPassword: password });
+      return;
+    }
+    if (!email.includes('@') || !email.includes('.')) {
+      setState({ authError: 'Ingresa un correo válido.', authName: name, authEmail: email, authPassword: password });
+      return;
+    }
+    if (password.length < 6) {
+      setState({ authError: 'La contraseña debe tener al menos 6 caracteres.', authName: name, authEmail: email, authPassword: password });
+      return;
+    }
+    if (REGISTERED_USERS.some((u) => u.email === email)) {
+      setState({ authError: 'Ya existe una cuenta con ese correo. Inicia sesión.', authName: name, authEmail: email, authPassword: password });
+      return;
+    }
+    REGISTERED_USERS.push({ name, email, password });
+    setState({ screen: 'inicio', user: { name, email }, authError: '', authName: '', authEmail: '', authPassword: '' });
+  } else {
+    if (!email || !password) {
+      setState({ authError: 'Completa correo y contraseña.', authEmail: email, authPassword: password });
+      return;
+    }
+    const found = REGISTERED_USERS.find((u) => u.email === email && u.password === password);
+    if (!found) {
+      setState({ authError: 'Correo o contraseña incorrectos.', authEmail: email, authPassword: password });
+      return;
+    }
+    setState({ screen: 'inicio', user: { name: found.name, email: found.email }, authError: '', authName: '', authEmail: '', authPassword: '' });
+  }
+}
+
+// ---------------------------------------------------------------------
+// Cobro real (PayPal, sin backend)
+// ---------------------------------------------------------------------
+function mountPayPalButton(amount) {
+  const container = document.getElementById('paypal-button-container');
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (typeof paypal === 'undefined' || !paypal.Buttons) {
+    container.innerHTML = '<p style="margin:0;font-size:12px;color:#B4472A;text-align:center;">No se pudo cargar PayPal (revisa tu conexión a internet, o que el Client ID en el &lt;head&gt; esté bien configurado).</p>';
+    return;
+  }
+
+  paypal.Buttons({
+    style: { layout: 'vertical', color: 'gold', shape: 'pill', label: 'pay' },
+    createOrder: function (data, actions) {
+      return actions.order.create({
+        purchase_units: [{
+          description: 'Pedido semanal ZANO',
+          amount: { value: amount.toFixed(2), currency_code: 'MXN' }
+        }]
+      });
+    },
+    onApprove: function (data, actions) {
+      return actions.order.capture().then(function (details) {
+        setState({ screen: 'pagoOk', lastPaymentId: details.id, paymentError: '' });
+      });
+    },
+    onCancel: function () {
+      setState({ paymentError: 'Cancelaste el pago. Puedes intentarlo de nuevo cuando quieras.' });
+    },
+    onError: function (err) {
+      console.error('Error de PayPal:', err);
+      setState({ paymentError: 'Hubo un problema al procesar tu pago. Intenta de nuevo.' });
+    }
+  }).render('#paypal-button-container');
+}
+
+function logout() {
+  setState({
+    screen: 'auth',
+    authMode: 'login',
+    authName: '',
+    authEmail: '',
+    authPassword: '',
+    authError: '',
+    user: null,
+    plantel: null,
+    weekOrder: {},
+    horarios: {},
+    wholeWeek: false,
+    horarioEnabled: false,
+    paymentError: '',
+    lastPaymentId: null
+  });
+}
+
 // ---------------------------------------------------------------------
 // Acciones
 // ---------------------------------------------------------------------
@@ -311,6 +490,57 @@ function addAction() {
 }
 
 // ---------------------------------------------------------------------
+// Render: Crear cuenta / Iniciar sesión
+// ---------------------------------------------------------------------
+function renderAuth() {
+  const isSignup = state.authMode === 'signup';
+  return `
+    <div style="display:flex;flex-direction:column;gap:22px;padding-top:16px;">
+      <div style="display:flex;align-items:center;gap:8px;justify-content:center;">
+        ${icon('leaf', { w: 26, h: 26, stroke: '#2B5D3F', sw: 1.7 })}
+        <span style="font-family:'Work Sans',sans-serif;font-size:22px;font-weight:700;letter-spacing:0.5px;color:#2B5D3F;">ZANO</span>
+      </div>
+
+      <div>
+        <h1 style="margin:0 0 6px 0;font-family:'Fraunces',serif;font-weight:600;font-size:26px;text-align:center;color:#1F2420;">${isSignup ? 'Crea tu cuenta' : 'Inicia sesión'}</h1>
+        <p style="margin:0;font-size:13.5px;line-height:1.5;color:#6B7268;text-align:center;">${isSignup ? 'Regístrate para armar tu semana de comida sana.' : 'Entra con tu correo y contraseña.'}</p>
+      </div>
+
+      <div style="display:flex;background:#F0ECE0;border-radius:999px;padding:4px;gap:4px;">
+        <button onclick="setState({authMode:'login', authError:''})" style="flex:1;padding:10px;border-radius:999px;font-size:13px;font-weight:700;background:${!isSignup ? '#FFFFFF' : 'transparent'};color:${!isSignup ? '#1F2420' : '#6B7268'};">Iniciar sesión</button>
+        <button onclick="setState({authMode:'signup', authError:''})" style="flex:1;padding:10px;border-radius:999px;font-size:13px;font-weight:700;background:${isSignup ? '#FFFFFF' : 'transparent'};color:${isSignup ? '#1F2420' : '#6B7268'};">Crear cuenta</button>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        ${isSignup ? `
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Nombre</label>
+          <input id="auth-name" type="text" value="${esc(state.authName)}" placeholder="Tu nombre">
+        </div>` : ''}
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Correo</label>
+          <input id="auth-email" type="email" value="${esc(state.authEmail)}" placeholder="tucorreo@ejemplo.com">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Contraseña</label>
+          <input id="auth-password" type="password" value="${esc(state.authPassword)}" placeholder="Mínimo 6 caracteres">
+        </div>
+      </div>
+
+      ${state.authError ? `
+      <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;">
+        ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
+        <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">${esc(state.authError)}</span>
+      </div>` : ''}
+
+      <button onclick="submitAuth()" class="pill-btn">${isSignup ? 'Crear cuenta' : 'Iniciar sesión'}</button>
+
+      <p style="margin:0;font-size:11px;line-height:1.5;color:#9AA096;text-align:center;">Esta es una demo: tu cuenta se guarda solo mientras tengas esta pestaña abierta, no hay servidor real detrás todavía.</p>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------
 // Render: Inicio
 // ---------------------------------------------------------------------
 function renderInicio() {
@@ -335,7 +565,7 @@ function renderInicio() {
         <div class="card" style="overflow:hidden;">
           ${PLANTELES.map((name) => {
             const sel = state.plantel === name;
-            return `<button onclick="setState({plantel:${JSON.stringify(name)}, pickerOpen:false})" style="width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid #F0ECE0;background:${sel ? '#E4ECE1' : '#FFFFFF'};text-align:left;">
+            return `<button onclick='setState({plantel:${JSON.stringify(name)}, pickerOpen:false})' style="width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid #F0ECE0;background:${sel ? '#E4ECE1' : '#FFFFFF'};text-align:left;">
               <span style="font-size:13.5px;font-weight:600;color:${sel ? '#2B5D3F' : '#1F2420'};">${esc(name)}</span>
               ${sel ? icon('check', { w: 16, h: 16, stroke: '#2B5D3F', sw: 2.2 }) : ''}
             </button>`;
@@ -358,14 +588,14 @@ function renderInicio() {
         <div style="display:flex;flex-direction:column;gap:10px;">
           ${diasConPedido.map((d) => `
             <div style="display:flex;align-items:center;gap:8px;">
-              <button onclick="pickDay(${JSON.stringify(d.dia)})" class="card" style="flex:1;min-width:0;padding:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;">
+              <button onclick='pickDay(${JSON.stringify(d.dia)})' class="card" style="flex:1;min-width:0;padding:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;">
                 <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
                   <span style="font-size:12px;color:#6B7268;">${d.dia}</span>
                   <span style="font-size:14px;font-weight:600;color:#1F2420;">${esc(d.label)}</span>
                 </div>
                 <span style="font-size:13px;font-weight:700;color:${ACCENT};white-space:nowrap;">${esc(d.price)}</span>
               </button>
-              ${d.hasItem ? `<button onclick="clearDay(${JSON.stringify(d.dia)})" aria-label="Quitar platillo del día" style="width:38px;height:38px;border-radius:999px;background:#FFFFFF;border:1px solid #E7E2D6;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${icon('x', { w: 16, h: 16 })}</button>` : ''}
+              ${d.hasItem ? `<button onclick='clearDay(${JSON.stringify(d.dia)})' aria-label="Quitar platillo del día" style="width:38px;height:38px;border-radius:999px;background:#FFFFFF;border:1px solid #E7E2D6;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${icon('x', { w: 16, h: 16 })}</button>` : ''}
             </div>
           `).join('')}
         </div>
@@ -373,7 +603,7 @@ function renderInicio() {
 
       <div style="display:flex;gap:10px;align-items:flex-start;background:#E4ECE1;border-radius:14px;padding:14px;">
         ${icon('info', { w: 18, h: 18, stroke: '#2B5D3F', sw: 1.8 })}
-        <span style="font-size:12.5px;line-height:1.5;color:#2B5D3F;">Si no pediste con anticipación, ese día solo hay sándwich preparado al momento.</span>
+        <span style="font-size:12.5px;line-height:1.5;color:#2B5D3F;">Si no pediste con anticipación, ese día hay croissant con huevito y jamón preparado al momento.</span>
       </div>
     </div>
   `;
@@ -520,27 +750,36 @@ function renderSemana() {
       <div style="display:flex;flex-direction:column;gap:8px;">
         ${diasConPedido.map((d) => `
           <div style="display:flex;align-items:center;gap:8px;">
-            <button onclick="pickDay(${JSON.stringify(d.dia)})" class="card" style="flex:1;min-width:0;padding:14px;display:flex;align-items:center;justify-content:space-between;text-align:left;">
+            <button onclick='pickDay(${JSON.stringify(d.dia)})' class="card" style="flex:1;min-width:0;padding:14px;display:flex;align-items:center;justify-content:space-between;text-align:left;">
               <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
                 <span style="font-size:12px;color:#6B7268;">${d.dia}</span>
                 <span style="font-size:14px;font-weight:600;color:#1F2420;">${esc(d.label)}</span>
               </div>
               ${icon('chevronRight', { w: 18, h: 18 })}
             </button>
-            ${d.hasItem ? `<button onclick="clearDay(${JSON.stringify(d.dia)})" aria-label="Quitar platillo del día" style="width:38px;height:38px;border-radius:999px;background:#FFFFFF;border:1px solid #E7E2D6;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${icon('x', { w: 16, h: 16 })}</button>` : ''}
+            ${d.hasItem ? `<button onclick='clearDay(${JSON.stringify(d.dia)})' aria-label="Quitar platillo del día" style="width:38px;height:38px;border-radius:999px;background:#FFFFFF;border:1px solid #E7E2D6;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${icon('x', { w: 16, h: 16 })}</button>` : ''}
           </div>
         `).join('')}
       </div>`}
 
       <div style="display:flex;gap:10px;align-items:flex-start;background:#E4ECE1;border-radius:14px;padding:14px;">
         ${icon('info', { w: 18, h: 18, stroke: '#2B5D3F', sw: 1.8 })}
-        <span style="font-size:12.5px;line-height:1.5;color:#2B5D3F;">Pide con 3 días de anticipación. Si no pediste, ese día solo hay sándwich preparado al momento.</span>
+        <span style="font-size:12.5px;line-height:1.5;color:#2B5D3F;">Pide con 3 días de anticipación. Si no pediste, ese día hay croissant con huevito y jamón preparado al momento.</span>
       </div>
 
       ${diasConHorario.length > 0 ? `
+      <button onclick="setState({horarioEnabled: !state.horarioEnabled})" class="card" style="width:100%;padding:14px;display:flex;align-items:center;justify-content:space-between;text-align:left;">
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <span style="font-size:13.5px;font-weight:600;color:#1F2420;">Elegir horario de recogida</span>
+          <span style="font-size:11px;color:#6B7268;">Opcional — lo preparamos justo antes para que llegue caliente.</span>
+        </div>
+        <span style="width:42px;height:24px;border-radius:999px;background:${state.horarioEnabled ? '#2B5D3F' : '#D8D2C2'};position:relative;display:inline-block;flex-shrink:0;">
+          <span style="width:18px;height:18px;border-radius:999px;background:#FFFFFF;position:absolute;top:3px;left:${state.horarioEnabled ? '21px' : '3px'};"></span>
+        </span>
+      </button>` : ''}
+
+      ${state.horarioEnabled && diasConHorario.length > 0 ? `
       <div>
-        <span style="font-size:13.5px;font-weight:700;color:#1F2420;">Horario de recogida</span>
-        <p style="margin:4px 0 10px 0;font-size:11.5px;line-height:1.4;color:#6B7268;">Elige la hora de cada día — lo preparamos justo antes para que llegue caliente.</p>
         <div style="display:flex;flex-direction:column;gap:8px;">
           ${diasConHorario.map((d) => {
             const dia = d.dia;
@@ -548,7 +787,7 @@ function renderSemana() {
             const isOpen = state.horarioPickerDay === dia;
             return `
             <div>
-              <button onclick="setState({horarioPickerDay: ${JSON.stringify(isOpen ? null : dia)}})" class="card" style="width:100%;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;">
+              <button onclick='setState({horarioPickerDay: ${JSON.stringify(isOpen ? null : dia)}})' class="card" style="width:100%;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;">
                 <div style="display:flex;flex-direction:column;gap:1px;">
                   <span style="font-size:11.5px;color:#6B7268;">${dia}</span>
                   <span style="font-size:14px;font-weight:600;color:#1F2420;">${esc(selectedHorario ?? 'Elige tu horario')}</span>
@@ -559,7 +798,7 @@ function renderSemana() {
               <div class="card" style="overflow:hidden;margin-top:6px;max-height:220px;overflow-y:auto;">
                 ${HORARIOS.map((h) => {
                   const sel = selectedHorario === h;
-                  return `<button onclick="setState({horarios:{...state.horarios, [${JSON.stringify(dia)}]:${JSON.stringify(h)}}, horarioPickerDay:null})" style="width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #F0ECE0;background:${sel ? '#E4ECE1' : '#FFFFFF'};text-align:left;">
+                  return `<button onclick='setState({horarios:{...state.horarios, [${JSON.stringify(dia)}]:${JSON.stringify(h)}}, horarioPickerDay:null})' style="width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #F0ECE0;background:${sel ? '#E4ECE1' : '#FFFFFF'};text-align:left;">
                     <span style="font-size:13.5px;font-weight:600;color:${sel ? '#2B5D3F' : '#1F2420'};">${h}</span>
                     ${sel ? icon('check', { w: 16, h: 16, stroke: '#2B5D3F', sw: 2.2 }) : ''}
                   </button>`;
@@ -589,6 +828,8 @@ function renderPago() {
   const diasConHorario = diasConPedido.filter((d) => d.hasItem);
   const count = diasConHorario.length;
   const weekTotalLabel = computeWeekTotalLabel(diasConPedido);
+  const { total: weekTotalNum, complete: weekTotalComplete } = computeWeekTotalNumber(diasConPedido);
+  const canPay = weekTotalComplete && weekTotalNum > 0;
 
   return `
     <div style="display:flex;flex-direction:column;height:100%;">
@@ -607,7 +848,7 @@ function renderPago() {
           </div>
         </div>
 
-        ${diasConHorario.length > 0 ? `
+        ${state.horarioEnabled && diasConHorario.length > 0 ? `
         <div style="padding:14px 16px;border-bottom:1px solid #F0ECE0;display:flex;flex-direction:column;gap:6px;">
           <span style="font-size:11px;font-weight:700;color:#6B7268;text-transform:uppercase;letter-spacing:0.4px;">Horario de recogida</span>
           ${diasConHorario.map((d) => `
@@ -618,14 +859,6 @@ function renderPago() {
           `).join('')}
         </div>` : ''}
 
-        <div class="row" style="padding:16px;border-bottom:1px solid #F0ECE0;">
-          <div style="display:flex;align-items:center;gap:10px;">
-            ${icon('card', { w: 26, h: 18, stroke: '#1F2420', sw: 1.6 })}
-            <span style="font-size:13.5px;font-weight:600;color:#1F2420;">Tarjeta terminada en [****]</span>
-          </div>
-          ${icon('chevronRight', { w: 16, h: 16 })}
-        </div>
-
         <div class="row" style="padding:16px;">
           <span style="font-size:14px;font-weight:600;color:#1F2420;">Total</span>
           <span style="font-size:20px;font-weight:700;color:${ACCENT};">${weekTotalLabel}</span>
@@ -634,9 +867,24 @@ function renderPago() {
 
       <div style="flex:1;"></div>
 
-      <div style="display:flex;flex-direction:column;align-items:center;gap:18px;padding-bottom:36px;">
-        ${icon('faceid', { w: 56, h: 56, stroke: '#1F2420', sw: 2.2 })}
-        <button onclick="setState({screen:'pagoOk'})" style="width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:8px;background:#1F2420;color:#FFFFFF;border-radius:999px;padding:16px;font-size:15.5px;font-weight:700;">Pagar con Face ID</button>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding-bottom:36px;">
+        ${state.paymentError ? `
+        <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;width:100%;box-sizing:border-box;">
+          ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
+          <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">${esc(state.paymentError)}</span>
+        </div>` : ''}
+
+        ${!weekTotalComplete ? `
+        <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;width:100%;box-sizing:border-box;">
+          ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
+          <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">Uno o más platillos de tu semana todavía no tienen precio definido, así que no podemos cobrarte un total exacto. Quítalos desde Mi semana o espera a que se les asigne precio.</span>
+        </div>` : !canPay ? `
+        <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;width:100%;box-sizing:border-box;">
+          ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
+          <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">Agrega al menos un platillo a tu semana para poder pagar.</span>
+        </div>` : `
+        <div id="paypal-button-container" style="width:100%;"></div>
+        <p style="margin:0;font-size:11px;line-height:1.4;color:#9AA096;text-align:center;">Pago real procesado por PayPal — se te cobrará de verdad al confirmar.</p>`}
       </div>
     </div>
   `;
@@ -652,6 +900,7 @@ function renderPagoOk() {
       <div>
         <h1 style="margin:0 0 8px 0;font-family:'Fraunces',serif;font-weight:600;font-size:24px;color:#1F2420;">¡Pedido confirmado!</h1>
         <p style="margin:0;font-size:13.5px;line-height:1.5;color:#6B7268;">Tu pedido de la semana quedó pagado. Te esperamos en tu contenedor ZANO.</p>
+        ${state.lastPaymentId ? `<p style="margin:6px 0 0 0;font-size:11px;color:#9AA096;">Referencia de pago: ${esc(state.lastPaymentId)}</p>` : ''}
       </div>
       <div style="width:100%;display:flex;flex-direction:column;gap:8px;text-align:left;">
         ${diasConPedido.map((d) => `
@@ -661,7 +910,7 @@ function renderPagoOk() {
           </div>
         `).join('')}
       </div>
-      <button onclick="setState({screen:'inicio', weekOrder:{}, horarios:{}, wholeWeek:true})" class="pill-btn" style="margin-top:8px;">Listo</button>
+      <button onclick="setState({screen:'inicio', weekOrder:{}, horarios:{}, wholeWeek:false, horarioEnabled:false, paymentError:'', lastPaymentId:null})" class="pill-btn" style="margin-top:8px;">Listo</button>
     </div>
   `;
 }
@@ -684,8 +933,8 @@ function renderPerfil() {
           ${icon('user', { w: 26, h: 26, stroke: '#2B5D3F', sw: 1.7 })}
         </div>
         <div style="display:flex;flex-direction:column;gap:2px;">
-          <span style="font-size:16px;font-weight:700;color:#1F2420;">[Tu nombre]</span>
-          <span style="font-size:12.5px;color:#6B7268;">${esc(state.plantel ?? '[Tu plantel]')}</span>
+          <span style="font-size:16px;font-weight:700;color:#1F2420;">${esc(state.user ? state.user.name : '[Tu nombre]')}</span>
+          <span style="font-size:12.5px;color:#6B7268;">${esc(state.user ? state.user.email : '')}${state.plantel ? ' · ' + esc(state.plantel) : ''}</span>
         </div>
       </div>
 
@@ -723,6 +972,8 @@ function renderPerfil() {
           `).join('')}
         </div>
       </div>
+
+      <button onclick="logout()" style="width:100%;text-align:center;padding:14px;font-size:13.5px;font-weight:700;color:#B4472A;">Cerrar sesión</button>
     </div>
   `;
 }
@@ -733,10 +984,11 @@ function renderPerfil() {
 function render() {
   const contentEl = document.getElementById('content');
   const navEl = document.getElementById('nav');
-  const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk';
+  const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth';
 
   let html = '';
-  if (state.screen === 'inicio') html = renderInicio();
+  if (state.screen === 'auth') html = renderAuth();
+  else if (state.screen === 'inicio') html = renderInicio();
   else if (state.screen === 'menu') html = state.selected ? renderMenuDetail() : renderMenuList();
   else if (state.screen === 'semana') html = renderSemana();
   else if (state.screen === 'pago') html = renderPago();
@@ -746,6 +998,14 @@ function render() {
   contentEl.style.bottom = showNav ? '84px' : '0px';
   contentEl.innerHTML = html;
   contentEl.scrollTop = 0;
+
+  if (state.screen === 'pago') {
+    const diasConPedido = computeDiasConPedido();
+    const { total, complete } = computeWeekTotalNumber(diasConPedido);
+    if (complete && total > 0) {
+      mountPayPalButton(total);
+    }
+  }
 
   if (showNav) {
     const isInicio = state.screen === 'inicio';
