@@ -46,16 +46,20 @@ module.exports = async function handler(req, res) {
     const userRes = await pool.query('SELECT name, email FROM users WHERE id = $1', [auth.uid]);
     const user = userRes.rows[0];
     if (user) {
-      mandarCorreoCliente(
-        user.email,
-        user.name,
-        'Tu pedido de ZANO está confirmado',
-        'Ya confirmamos tu pago. Tu pedido de esta semana quedó agendado — nos vemos en tu institución en tu horario de recogida.'
-      ).catch(() => {});
-      notificarDueño(
-        'Pedido pagado en ZANO',
-        'Pago confirmado de ' + user.name + ' (' + user.email + '). Referencia de PayPal: ' + paymentId
-      ).catch(() => {});
+      // Esperamos a que terminen los correos antes de responder (ver nota en
+      // register.js) — si no, Vercel puede apagar la función a la mitad.
+      await Promise.all([
+        mandarCorreoCliente(
+          user.email,
+          user.name,
+          'Tu pedido de ZANO está confirmado',
+          'Ya confirmamos tu pago. Tu pedido de esta semana quedó agendado — nos vemos en tu institución en tu horario de recogida.'
+        ).catch((err) => { console.error('[order-confirm] Error mandando confirmación:', err); }),
+        notificarDueño(
+          'Pedido pagado en ZANO',
+          'Pago confirmado de ' + user.name + ' (' + user.email + '). Referencia de PayPal: ' + paymentId
+        ).catch((err) => { console.error('[order-confirm] Error avisando al dueño:', err); })
+      ]);
     }
 
     res.status(200).json({ ok: true });
