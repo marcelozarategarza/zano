@@ -18,8 +18,12 @@
   navegador) y es seguro exponerlo — NUNCA pongas aquí un "Secret" de PayPal.
   Para probar sin dinero real, deja "sb" (modo sandbox/pruebas).
   Para cobrar de verdad, cámbialo por el Client ID de tu cuenta real (ver README).
+  "enable-funding=card" le dice a PayPal que muestre también el botón para pagar
+  con tarjeta de crédito/débito sin necesitar cuenta de PayPal — los datos de la
+  tarjeta los captura y procesa PayPal directamente (nunca pasan por nuestro
+  servidor ni por nuestra base de datos).
 -->
-<script src="https://www.paypal.com/sdk/js?client-id=sb&currency=MXN&intent=capture"></script>
+<script src="https://www.paypal.com/sdk/js?client-id=sb&currency=MXN&intent=capture&enable-funding=card"></script>
 <!--
   Envío automático del correo de "Ayuda" (sin backend) con EmailJS: la Public Key
   es pública y es seguro exponerla — NUNCA pongas aquí una llave privada.
@@ -89,7 +93,7 @@
     overscroll-behavior: contain;
     touch-action: pan-y;
     box-sizing: border-box;
-    padding: 28px 24px 24px;
+    padding: 28px 24px calc(24px + env(safe-area-inset-bottom, 0px));
     display: flex;
     flex-direction: column;
     gap: 18px;
@@ -97,13 +101,13 @@
   #nav {
     position: absolute;
     left: 0; right: 0; bottom: 0;
-    height: 84px;
+    height: calc(84px + env(safe-area-inset-bottom, 0px));
     background: #FFFFFF;
     border-top: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: space-around;
-    padding-bottom: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     box-sizing: border-box;
   }
   .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; color: #9AA096; }
@@ -269,11 +273,17 @@ let state = {
   adminTab: 'resumen',       // resumen | clientes | platillos | calendario | gastos
   adminSelectedWeek: null,   // week_start elegido en Resumen/Calendario
   adminCostSaving: false,
-  adminCostSaved: false
+  adminCostSaved: false,
+
+  // Semana (weekStart) a la que pertenece el pedido cacheado en este
+  // teléfono para mostrarlo sin conexión — ver saveOfflineSnapshot().
+  offlineWeekStart: null
 };
 
 function setState(patch) {
   state = { ...state, ...patch };
+  saveSession();
+  saveOfflineSnapshot();
   render();
 }
 
@@ -324,7 +334,8 @@ function icon(name, extra) {
     plus: '<path d="M12 5v14M5 12h14"/>',
     card: '<rect x="1" y="1" width="24" height="16" rx="2.5"/><path d="M1 6.5h24"/>',
     faceid: '<path d="M10 22V14a4 4 0 0 1 4-4h8"/><path d="M42 10h8a4 4 0 0 1 4 4v8"/><path d="M10 42v8a4 4 0 0 0 4 4h8"/><path d="M54 42v8a4 4 0 0 1-4 4h-8"/><circle cx="24" cy="28" r="1.6" fill="#1F2420" stroke="none"/><circle cx="40" cy="28" r="1.6" fill="#1F2420" stroke="none"/><path d="M32 26v8"/><path d="M24 40c3 3 13 3 16 0"/>',
-    photo: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5-9 9"/>'
+    photo: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5-9 9"/>',
+    wifiOff: '<path d="M1 1l22 22"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><path d="M12 20h.01"/>'
   };
   return `<svg width="${s.w||18}" height="${s.h||18}" viewBox="0 0 24 24" fill="none" stroke="${s.stroke||'#9AA096'}" stroke-width="${s.sw||1.8}" stroke-linecap="round" stroke-linejoin="round">${icons[name]||''}</svg>`;
 }
@@ -446,6 +457,61 @@ async function apiFetch(path, options) {
   let data = null;
   try { data = await res.json(); } catch (e) { /* respuesta sin JSON (p.ej. backend no desplegado) */ }
   return { ok: res.ok, status: res.status, data: data };
+}
+
+// ---------------------------------------------------------------------
+// Guardado local en el teléfono (localStorage): NO es el backend, es solo
+// para que la app recuerde tu sesión al volver a abrirla y pueda mostrar
+// tu pedido aunque no haya internet en ese momento. Nunca se manda a
+// ningún servidor.
+// ---------------------------------------------------------------------
+const SESSION_KEY = 'zano_session_v1';
+const OFFLINE_CACHE_KEY = 'zano_offline_cache_v1';
+
+function saveSession() {
+  try {
+    if (state.user) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        authToken: state.authToken || '',
+        user: state.user,
+        plantel: state.plantel || null
+      }));
+    } else {
+      localStorage.removeItem(SESSION_KEY);
+    }
+  } catch (e) { /* localStorage no disponible (modo privado, etc.) */ }
+}
+
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+// Guarda (o borra, si ya no aplica) una foto de tu pedido de esta semana
+// para poder mostrarlo sin conexión la próxima vez que abras la app.
+function saveOfflineSnapshot() {
+  try {
+    const hayPedido = state.user && DIAS.some((d) => state.weekOrder[d]);
+    if (!hayPedido) {
+      localStorage.removeItem(OFFLINE_CACHE_KEY);
+      return;
+    }
+    localStorage.setItem(OFFLINE_CACHE_KEY, JSON.stringify({
+      weekStart: computeWeekStartISO(),
+      weekOrder: state.weekOrder,
+      horarios: state.horarios,
+      plantel: state.plantel || null
+    }));
+  } catch (e) { /* localStorage no disponible */ }
+}
+
+function loadOfflineSnapshot() {
+  try {
+    const raw = localStorage.getItem(OFFLINE_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
 }
 
 function computeWeekStartISO() {
@@ -1791,7 +1857,7 @@ function renderPago() {
           <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">Agrega al menos un platillo a tu semana para poder pagar.</span>
         </div>` : `
         <div id="paypal-button-container" style="width:100%;"></div>
-        <p style="margin:0;font-size:11px;line-height:1.4;color:#9AA096;text-align:center;">Pago real procesado por PayPal — se te cobrará de verdad al confirmar.</p>`}
+        <p style="margin:0;font-size:11px;line-height:1.4;color:#9AA096;text-align:center;">Acepta PayPal, tarjeta de crédito y tarjeta de débito — procesado por PayPal, se te cobrará de verdad al confirmar.</p>`}
       </div>
     </div>
   `;
@@ -2007,12 +2073,60 @@ function renderPerfilInfo() {
 }
 
 // ---------------------------------------------------------------------
+// Render: Sin conexión — se muestra al abrir la app sin señal, con lo
+// último que se guardó en este teléfono (no necesita servidor).
+// ---------------------------------------------------------------------
+function renderOffline() {
+  const semanaActual = computeWeekStartISO();
+  const esSemanaVigente = state.offlineWeekStart === semanaActual;
+  const proxima = computeProximaRecoleccion();
+  const horario = proxima ? (state.horarios[proxima.dia] || null) : null;
+
+  return `
+    <div style="display:flex;flex-direction:column;gap:20px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        ${icon('leaf', { w: 24, h: 24, stroke: '#2B5D3F', sw: 1.7 })}
+        <span style="font-family:'Work Sans',sans-serif;font-size:20px;font-weight:700;letter-spacing:0.5px;color:#2B5D3F;">ZANO</span>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:flex-start;background:#F0ECE0;border-radius:14px;padding:14px;">
+        ${icon('wifiOff', { w: 18, h: 18, stroke: '#6B7268', sw: 1.8 })}
+        <span style="font-size:12.5px;line-height:1.5;color:#6B7268;">Sin conexión a internet. Esto es lo último que se guardó en este teléfono${esSemanaVigente ? '' : ', de la semana del ' + esc(fmtWeekLabel(state.offlineWeekStart))}.</span>
+      </div>
+
+      ${proxima ? `
+        <div class="card" style="padding:20px;display:flex;flex-direction:column;gap:6px;">
+          <span style="font-size:12.5px;font-weight:700;color:${ACCENT};text-transform:uppercase;letter-spacing:0.3px;">${proxima.esHoy && esSemanaVigente ? 'Tu pedido de hoy' : 'Tu próximo pedido guardado · ' + esc(proxima.dia)}</span>
+          <span style="font-family:'Fraunces',serif;font-weight:600;font-size:24px;color:#1F2420;">${esc(proxima.item.name)}</span>
+          ${horario ? `
+          <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+            ${icon('clock', { w: 16, h: 16, stroke: '#6B7268', sw: 1.7 })}
+            <span style="font-size:13.5px;color:#6B7268;">Hora de entrega: ${esc(horario)}</span>
+          </div>` : ''}
+          ${state.plantel ? `
+          <div style="display:flex;align-items:center;gap:6px;">
+            ${icon('pin', { w: 16, h: 16, stroke: '#6B7268', sw: 1.7 })}
+            <span style="font-size:13.5px;color:#6B7268;">${esc(state.plantel)}</span>
+          </div>` : ''}
+        </div>
+      ` : `
+        <div class="card" style="padding:20px;">
+          <span style="font-size:14px;line-height:1.5;color:#6B7268;">No tenemos ningún pedido guardado en este teléfono. En cuanto tengas señal, entra a la app para armar tu semana.</span>
+        </div>
+      `}
+
+      <button onclick="location.reload()" class="pill-btn">Reintentar conexión</button>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------
 // Render principal
 // ---------------------------------------------------------------------
 function render() {
   const contentEl = document.getElementById('content');
   const navEl = document.getElementById('nav');
-  const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth' && state.screen !== 'perfilInfo' && state.screen !== 'forgot' && state.screen !== 'reset' && state.screen !== 'landing' && state.screen !== 'adminLogin' && state.screen !== 'admin';
+  const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth' && state.screen !== 'perfilInfo' && state.screen !== 'forgot' && state.screen !== 'reset' && state.screen !== 'landing' && state.screen !== 'adminLogin' && state.screen !== 'admin' && state.screen !== 'offline';
 
   let html = '';
   if (state.screen === 'landing') html = renderLanding();
@@ -2021,6 +2135,7 @@ function render() {
   else if (state.screen === 'reset') html = renderReset();
   else if (state.screen === 'adminLogin') html = renderAdminLogin();
   else if (state.screen === 'admin') html = renderAdmin();
+  else if (state.screen === 'offline') html = renderOffline();
   else if (state.screen === 'inicio') html = renderInicio();
   else if (state.screen === 'menu') html = state.selected ? renderMenuDetail() : renderMenuList();
   else if (state.screen === 'semana') html = renderSemana();
@@ -2029,7 +2144,7 @@ function render() {
   else if (state.screen === 'perfil') html = renderPerfil();
   else if (state.screen === 'perfilInfo') html = renderPerfilInfo();
 
-  contentEl.style.bottom = showNav ? '84px' : '0px';
+  contentEl.style.bottom = showNav ? 'calc(84px + env(safe-area-inset-bottom, 0px))' : '0px';
   contentEl.style.overflowY = state.screen === 'landing' ? 'hidden' : 'auto';
   contentEl.innerHTML = html;
   contentEl.scrollTop = 0;
@@ -2069,6 +2184,54 @@ function render() {
   }
 }
 
+// Guarda una copia de la app en este teléfono la primera vez que se abre
+// con internet, para que el navegador pueda volver a ABRIRLA sin señal
+// (ver sw.js) — sin esto, sin conexión no se llega ni a ejecutar el JS
+// que muestra el pedido guardado.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => { /* navegadores viejos o sin soporte: la app sigue funcionando normal con internet */ });
+  });
+}
+
+// ---------------------------------------------------------------------
+// Arranque: recupera la sesión guardada en este teléfono (para no pedir
+// iniciar sesión cada vez que se abre la app) y, si no hay señal en ese
+// momento, muestra la pantalla de "Sin conexión" con el último pedido
+// guardado en vez de intentar hablar con el servidor.
+// ---------------------------------------------------------------------
+const savedSession = loadSession();
+if (savedSession && savedSession.user) {
+  state = {
+    ...state,
+    screen: 'inicio',
+    user: savedSession.user,
+    authToken: savedSession.authToken || '',
+    plantel: savedSession.plantel || null
+  };
+}
+
+if (!navigator.onLine) {
+  const cache = loadOfflineSnapshot();
+  if (cache) {
+    state = {
+      ...state,
+      weekOrder: cache.weekOrder || {},
+      horarios: cache.horarios || {},
+      plantel: state.plantel || cache.plantel || null,
+      offlineWeekStart: cache.weekStart || null,
+      screen: 'offline'
+    };
+  } else if (state.user) {
+    // Hay sesión guardada pero todavía ningún pedido cacheado en este
+    // teléfono: igual mostramos la pantalla de sin conexión (con su
+    // propio mensaje) en vez de mandarlo a pantallas que necesitan servidor.
+    state = { ...state, screen: 'offline' };
+  }
+  // Si no hay sesión ni pedido guardado, no hay nada que mostrar sin
+  // conexión: se queda en la pantalla de inicio (landing) normal.
+}
+
 // Entra directo al panel de administración cuando abres tudominio.com/#admin
 // (nunca aparece en la navegación normal de la app, es solo para ti).
 if (location.hash === '#admin') {
@@ -2076,6 +2239,14 @@ if (location.hash === '#admin') {
 }
 
 render();
+
+// Si la app se quedó en la pantalla de "Sin conexión" y vuelve la señal,
+// regresa sola a la app normal (inicio si ya había sesión, o landing).
+window.addEventListener('online', () => {
+  if (state.screen === 'offline') {
+    setState({ screen: state.user ? 'inicio' : 'landing' });
+  }
+});
 </script>
 </body>
 </html>
