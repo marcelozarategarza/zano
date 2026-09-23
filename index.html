@@ -205,7 +205,7 @@ const REGISTERED_USERS = [];
 // Estado
 // ---------------------------------------------------------------------
 let state = {
-  screen: 'auth',          // auth | inicio | menu | semana | pago | pagoOk | perfil
+  screen: 'landing',       // landing | auth | inicio | menu | semana | pago | pagoOk | perfil
   authMode: 'login',       // login | signup
   authName: '',
   authEmail: '',
@@ -850,6 +850,62 @@ function addAction() {
   } else {
     setState({ screen: 'semana' });
   }
+}
+
+// ---------------------------------------------------------------------
+// Render: Portada (pantalla de bienvenida antes de entrar/registrarse)
+// ---------------------------------------------------------------------
+function renderLanding() {
+  const features = [
+    { i: 'leaf', t: 'Comida balanceada', d: 'Platillos pensados en tus macros, hechos con ingredientes frescos.', tint: '#E4ECE1', stroke: '#2B5D3F' },
+    { i: 'week', t: 'Arma tu semana', d: 'Pide con 3 días de anticipación y organiza toda tu semana de una vez.', tint: '#FBE8DD', stroke: '#C2582A' },
+    { i: 'clock', t: 'Recógelo en tu institución', d: 'Entregas directo en tu escuela, en el horario que elijas.', tint: '#E4ECE1', stroke: '#2B5D3F' }
+  ];
+  return `
+    <div style="position:relative;display:flex;flex-direction:column;gap:26px;padding-top:14px;min-height:100%;">
+      <div style="position:absolute;top:-40px;right:-70px;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle, rgba(43,93,63,0.16) 0%, rgba(43,93,63,0) 70%);pointer-events:none;"></div>
+      <div style="position:absolute;top:190px;left:-90px;width:200px;height:200px;border-radius:50%;background:radial-gradient(circle, rgba(226,112,58,0.14) 0%, rgba(226,112,58,0) 70%);pointer-events:none;"></div>
+
+      <div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;padding-top:18px;">
+        <div style="width:72px;height:72px;border-radius:22px;background:linear-gradient(160deg, #EFF5EC 0%, #DCE8D9 100%);display:flex;align-items:center;justify-content:center;box-shadow:0 10px 24px rgba(43,93,63,0.18), inset 0 1px 0 rgba(255,255,255,0.6);">
+          ${icon('leaf', { w: 36, h: 36, stroke: '#2B5D3F', sw: 1.6 })}
+        </div>
+        <div style="display:flex;align-items:center;gap:7px;">
+          <span style="font-family:'Work Sans',sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;color:#2B5D3F;">ZANO</span>
+          <span style="width:4px;height:4px;border-radius:50%;background:#C7CDC1;"></span>
+          <span style="font-size:11.5px;font-weight:600;letter-spacing:0.3px;color:#9AA096;">MONTERREY</span>
+        </div>
+      </div>
+
+      <div style="position:relative;">
+        <h1 style="margin:0 0 12px 0;font-family:'Fraunces',serif;font-weight:600;font-size:33px;line-height:1.14;letter-spacing:-0.3px;text-align:center;color:#1F2420;">Comida sana,<br>lista para tu semana.</h1>
+        <p style="margin:0 auto;max-width:300px;font-size:14.5px;line-height:1.6;color:#6B7268;text-align:center;">Meal prep saludable para estudiantes universitarios — pide tu semana completa y recógela en tu institución.</p>
+      </div>
+
+      <div style="position:relative;display:flex;flex-direction:column;gap:10px;">
+        ${features.map((f) => `
+          <div style="background:#FFFFFF;border:1px solid #EFEBE0;border-radius:16px;padding:14px 16px;display:flex;align-items:center;gap:13px;box-shadow:0 3px 10px rgba(31,36,32,0.045);">
+            <div style="width:42px;height:42px;flex-shrink:0;border-radius:13px;background:${f.tint};display:flex;align-items:center;justify-content:center;">
+              ${icon(f.i, { w: 20, h: 20, stroke: f.stroke, sw: 1.7 })}
+            </div>
+            <div>
+              <div style="font-size:13.5px;font-weight:700;color:#1F2420;margin-bottom:2px;">${esc(f.t)}</div>
+              <div style="font-size:12px;line-height:1.4;color:#6B7268;">${esc(f.d)}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+
+      <div style="position:relative;display:flex;flex-direction:column;gap:10px;margin-top:auto;padding-top:10px;">
+        <button onclick="setState({screen:'auth', authMode:'signup', authError:'', authNotice:''})" class="pill-btn" style="box-shadow:0 10px 22px rgba(226,112,58,0.32);">Crear cuenta</button>
+        <button onclick="setState({screen:'auth', authMode:'login', authError:'', authNotice:''})" style="padding:14px;border-radius:14px;border:1.5px solid #E7E2D6;font-size:14px;font-weight:700;color:#2B5D3F;text-align:center;">Ya tengo cuenta</button>
+        <div style="display:flex;align-items:center;justify-content:center;gap:6px;padding-top:4px;">
+          ${icon('check', { w: 13, h: 13, stroke: '#9AA096', sw: 2.2 })}
+          <span style="font-size:11px;color:#9AA096;">Pagos seguros con PayPal</span>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 // ---------------------------------------------------------------------
@@ -1555,10 +1611,11 @@ function renderPerfilInfo() {
 function render() {
   const contentEl = document.getElementById('content');
   const navEl = document.getElementById('nav');
-  const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth' && state.screen !== 'perfilInfo' && state.screen !== 'forgot' && state.screen !== 'reset';
+  const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth' && state.screen !== 'perfilInfo' && state.screen !== 'forgot' && state.screen !== 'reset' && state.screen !== 'landing';
 
   let html = '';
-  if (state.screen === 'auth') html = renderAuth();
+  if (state.screen === 'landing') html = renderLanding();
+  else if (state.screen === 'auth') html = renderAuth();
   else if (state.screen === 'forgot') html = renderForgot();
   else if (state.screen === 'reset') html = renderReset();
   else if (state.screen === 'inicio') html = renderInicio();
