@@ -212,6 +212,7 @@ let state = {
   authPassword: '',
   authError: '',
   user: null,               // { name, email } una vez con sesión iniciada
+  authToken: '',            // token del backend (vacío = modo local sin backend)
   plantel: null,
   pickerOpen: false,
   tab: 'platos',
@@ -383,7 +384,45 @@ function computeProximaRecoleccion() {
 // ---------------------------------------------------------------------
 // Autenticación (simulada en memoria — sin backend real)
 // ---------------------------------------------------------------------
-function submitAuth() {
+// ---------------------------------------------------------------------
+// Backend (opcional): cuentas y pedidos guardados en servidor, sin lo cual
+// la app sigue funcionando en modo local (como antes) — ver README.
+// ---------------------------------------------------------------------
+const API_BASE = ''; // mismo dominio que la app una vez desplegada en Vercel
+
+async function apiFetch(path, options) {
+  options = options || {};
+  const res = await fetch(API_BASE + path, {
+    method: options.method || 'GET',
+    headers: Object.assign({ 'Content-Type': 'application/json' }, options.headers || {}),
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* respuesta sin JSON (p.ej. backend no desplegado) */ }
+  return { ok: res.ok, status: res.status, data: data };
+}
+
+function computeWeekStartISO() {
+  const d = new Date();
+  const day = d.getDay(); // 0 domingo .. 6 sábado (hora local)
+  const diff = (day === 0 ? -6 : 1) - day;
+  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() + diff);
+  const yyyy = monday.getFullYear();
+  const mm = String(monday.getMonth() + 1).padStart(2, '0');
+  const dd = String(monday.getDate()).padStart(2, '0');
+  return yyyy + '-' + mm + '-' + dd;
+}
+
+function guardarPedidoBackend(totalPesos) {
+  if (!state.authToken) return; // sin sesión de backend -> no hay nada que guardar
+  apiFetch('/api/order-save', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + state.authToken },
+    body: { weekStart: computeWeekStartISO(), items: state.weekOrder, totalCents: Math.round((totalPesos || 0) * 100) }
+  }).catch(() => {});
+}
+
+async function submitAuth() {
   const nameInput = document.getElementById('auth-name');
   const emailInput = document.getElementById('auth-email');
   const passwordInput = document.getElementById('auth-password');
@@ -404,23 +443,53 @@ function submitAuth() {
       setState({ authError: 'La contraseña debe tener al menos 6 caracteres.', authName: name, authEmail: email, authPassword: password });
       return;
     }
-    if (REGISTERED_USERS.some((u) => u.email === email)) {
-      setState({ authError: 'Ya existe una cuenta con ese correo. Inicia sesión.', authName: name, authEmail: email, authPassword: password });
-      return;
+
+    let manejadoPorBackend = false;
+    try {
+      const r = await apiFetch('/api/register', { method: 'POST', body: { name, email, password, phone: '' } });
+      if (r.ok && r.data && r.data.token) {
+        setState({ screen: 'inicio', user: r.data.user, authToken: r.data.token, authError: '', authName: '', authEmail: '', authPassword: '' });
+        manejadoPorBackend = true;
+      } else if (r.data && r.data.error) {
+        setState({ authError: r.data.error, authName: name, authEmail: email, authPassword: password });
+        manejadoPorBackend = true;
+      }
+    } catch (e) { /* sin backend configurado/desplegado o sin internet -> seguimos con el respaldo local */ }
+
+    if (!manejadoPorBackend) {
+      if (REGISTERED_USERS.some((u) => u.email === email)) {
+        setState({ authError: 'Ya existe una cuenta con ese correo. Inicia sesión.', authName: name, authEmail: email, authPassword: password });
+        return;
+      }
+      REGISTERED_USERS.push({ name, email, password, phone: '' });
+      setState({ screen: 'inicio', user: { name, email, phone: '' }, authToken: '', authError: '', authName: '', authEmail: '', authPassword: '' });
     }
-    REGISTERED_USERS.push({ name, email, password, phone: '' });
-    setState({ screen: 'inicio', user: { name, email, phone: '' }, authError: '', authName: '', authEmail: '', authPassword: '' });
   } else {
     if (!email || !password) {
       setState({ authError: 'Completa correo y contraseña.', authEmail: email, authPassword: password });
       return;
     }
-    const found = REGISTERED_USERS.find((u) => u.email === email && u.password === password);
-    if (!found) {
-      setState({ authError: 'Correo o contraseña incorrectos.', authEmail: email, authPassword: password });
-      return;
+
+    let manejadoPorBackend = false;
+    try {
+      const r = await apiFetch('/api/login', { method: 'POST', body: { email, password } });
+      if (r.ok && r.data && r.data.token) {
+        setState({ screen: 'inicio', user: r.data.user, authToken: r.data.token, authError: '', authEmail: '', authPassword: '' });
+        manejadoPorBackend = true;
+      } else if (r.data && r.data.error) {
+        setState({ authError: r.data.error, authEmail: email, authPassword: password });
+        manejadoPorBackend = true;
+      }
+    } catch (e) { /* sin backend configurado/desplegado o sin internet -> seguimos con el respaldo local */ }
+
+    if (!manejadoPorBackend) {
+      const found = REGISTERED_USERS.find((u) => u.email === email && u.password === password);
+      if (!found) {
+        setState({ authError: 'Correo o contraseña incorrectos.', authEmail: email, authPassword: password });
+        return;
+      }
+      setState({ screen: 'inicio', user: { name: found.name, email: found.email, phone: found.phone || '' }, authToken: '', authError: '', authEmail: '', authPassword: '' });
     }
-    setState({ screen: 'inicio', user: { name: found.name, email: found.email, phone: found.phone || '' }, authError: '', authName: '', authEmail: '', authPassword: '' });
   }
 }
 
@@ -450,6 +519,13 @@ function mountPayPalButton(amount) {
     onApprove: function (data, actions) {
       return actions.order.capture().then(function (details) {
         setState({ screen: 'pagoOk', lastPaymentId: details.id, paymentError: '' });
+        if (state.authToken) {
+          apiFetch('/api/order-confirm', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + state.authToken },
+            body: { weekStart: computeWeekStartISO(), paymentId: details.id, totalCents: Math.round(amount * 100) }
+          }).catch(() => {});
+        }
       });
     },
     onCancel: function () {
@@ -471,6 +547,7 @@ function logout() {
     authPassword: '',
     authError: '',
     user: null,
+    authToken: '',
     plantel: null,
     weekOrder: {},
     horarios: {},
@@ -497,9 +574,9 @@ const AYUDA_CORREO = 'zano.ayuda@gmail.com';
 // Mientras estos tres sigan con su valor de ejemplo, la app usa el respaldo
 // manual (abrir tu app de correo + copiar el mensaje). Ver README para
 // configurar tu cuenta real de EmailJS y poner tus valores aquí.
-const EMAILJS_PUBLIC_KEY = 'TU_PUBLIC_KEY';
-const EMAILJS_SERVICE_ID = 'TU_SERVICE_ID';
-const EMAILJS_TEMPLATE_ID = 'TU_TEMPLATE_ID';
+const EMAILJS_PUBLIC_KEY = 'RnCJU-WPYbhp8KGl1';
+const EMAILJS_SERVICE_ID = 'service_th96hsg';
+const EMAILJS_TEMPLATE_ID = 'template_awc52as';
 
 function emailjsListo() {
   return typeof emailjs !== 'undefined'
@@ -1300,6 +1377,7 @@ function render() {
   if (state.screen === 'pago') {
     const diasConPedido = computeDiasConPedido();
     const { total, complete } = computeWeekTotalNumber(diasConPedido);
+    guardarPedidoBackend(total);
     if (complete && total > 0) {
       mountPayPalButton(total);
     }
