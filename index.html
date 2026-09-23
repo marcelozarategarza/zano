@@ -16,6 +16,16 @@
   Para cobrar de verdad, cámbialo por el Client ID de tu cuenta real (ver README).
 -->
 <script src="https://www.paypal.com/sdk/js?client-id=sb&currency=MXN&intent=capture"></script>
+<!--
+  Envío automático del correo de "Ayuda" (sin backend) con EmailJS: la Public Key
+  es pública y es seguro exponerla — NUNCA pongas aquí una llave privada.
+  Mientras EMAILJS_PUBLIC_KEY, EMAILJS_SERVICE_ID y EMAILJS_TEMPLATE_ID (más abajo,
+  en el bloque de JavaScript principal) sigan con sus valores de ejemplo, la app
+  usa el respaldo manual (abre tu app de correo + copia el mensaje). En cuanto
+  pongas tus datos reales de EmailJS (ver README), el mensaje se manda solo, sin
+  que nadie tenga que confirmar nada.
+-->
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <style>
   :root {
     --bg: #FAF8F3;
@@ -220,6 +230,10 @@ let state = {
   perfilInstitucionOpen: false,
   ayudaOpen: false,
   ayudaError: '',
+  ayudaSent: false,
+  ayudaEnviando: false,
+  ayudaAutomatico: false,
+  ayudaUltimoMensaje: '',
   historialTab: 'proximos',
   profileInfoError: ''
 };
@@ -468,12 +482,41 @@ function logout() {
     perfilInstitucionOpen: false,
     ayudaOpen: false,
     ayudaError: '',
+    ayudaSent: false,
+    ayudaEnviando: false,
+    ayudaAutomatico: false,
+    ayudaUltimoMensaje: '',
     historialTab: 'proximos',
     profileInfoError: ''
   });
 }
 
 const AYUDA_CORREO = 'zano.ayuda@gmail.com';
+
+// Datos de EmailJS para mandar el correo de "Ayuda" solo, sin backend.
+// Mientras estos tres sigan con su valor de ejemplo, la app usa el respaldo
+// manual (abrir tu app de correo + copiar el mensaje). Ver README para
+// configurar tu cuenta real de EmailJS y poner tus valores aquí.
+const EMAILJS_PUBLIC_KEY = 'TU_PUBLIC_KEY';
+const EMAILJS_SERVICE_ID = 'TU_SERVICE_ID';
+const EMAILJS_TEMPLATE_ID = 'TU_TEMPLATE_ID';
+
+function emailjsListo() {
+  return typeof emailjs !== 'undefined'
+    && EMAILJS_PUBLIC_KEY !== 'TU_PUBLIC_KEY'
+    && EMAILJS_SERVICE_ID !== 'TU_SERVICE_ID'
+    && EMAILJS_TEMPLATE_ID !== 'TU_TEMPLATE_ID';
+}
+
+if (typeof emailjs !== 'undefined' && EMAILJS_PUBLIC_KEY !== 'TU_PUBLIC_KEY') {
+  emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
+}
+
+function copiarTexto(texto) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(texto).catch(() => {});
+  }
+}
 
 function enviarAyuda() {
   const textarea = document.getElementById('ayuda-mensaje');
@@ -485,10 +528,49 @@ function enviarAyuda() {
   const nombre = state.user ? state.user.name : '';
   const correoUsuario = state.user ? state.user.email : '';
   const cuerpo = mensaje + '\n\n---\nEnviado desde la app ZANO\nNombre: ' + nombre + '\nCorreo: ' + correoUsuario;
+
+  if (emailjsListo()) {
+    setState({ ayudaError: '', ayudaEnviando: true });
+    emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+      to_email: AYUDA_CORREO,
+      from_name: nombre,
+      from_email: correoUsuario,
+      message: mensaje
+    }).then(() => {
+      setState({ ayudaEnviando: false, ayudaSent: true, ayudaAutomatico: true, ayudaUltimoMensaje: cuerpo });
+    }).catch(() => {
+      // Si el envío automático falla (sin internet, cuota mensual agotada, etc.),
+      // caemos al respaldo manual para que el mensaje no se pierda.
+      enviarAyudaRespaldo(cuerpo);
+    });
+  } else {
+    enviarAyudaRespaldo(cuerpo);
+  }
+}
+
+function enviarAyudaRespaldo(cuerpo) {
   const asunto = 'Ayuda ZANO';
   const mailtoUrl = 'mailto:' + AYUDA_CORREO + '?subject=' + encodeURIComponent(asunto) + '&body=' + encodeURIComponent(cuerpo);
-  window.location.href = mailtoUrl;
-  setState({ ayudaError: '' });
+
+  // Respaldo: copiamos el mensaje al portapapeles por si el correo no abre solo
+  // (pasa en algunos navegadores/celulares sin una app de correo configurada).
+  copiarTexto(cuerpo);
+
+  // Disparamos el mailto con un link real simulando el clic de la persona, en vez
+  // de solo cambiar window.location.href — es más confiable para que el navegador
+  // sí abra la app de correo, incluso dentro de vistas empotradas.
+  const link = document.createElement('a');
+  link.href = mailtoUrl;
+  link.rel = 'noopener';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+  setState({ ayudaError: '', ayudaEnviando: false, ayudaSent: true, ayudaAutomatico: false, ayudaUltimoMensaje: cuerpo });
+}
+
+function reiniciarAyuda() {
+  setState({ ayudaSent: false, ayudaAutomatico: false, ayudaUltimoMensaje: '', ayudaError: '' });
 }
 
 function savePerfilInfo() {
@@ -1123,13 +1205,24 @@ function renderPerfil() {
             <span style="font-size:14px;font-weight:600;color:#1F2420;">Ayuda</span>
             ${icon(state.ayudaOpen ? 'chevronDown' : 'chevronRight', { w: 18, h: 18 })}
           </button>
-          ${state.ayudaOpen ? `
-          <div style="padding:4px 16px 16px;display:flex;flex-direction:column;gap:10px;">
-            <p style="margin:0;font-size:11.5px;line-height:1.4;color:#6B7268;">Escribe tu mensaje — se va a abrir tu app de correo para enviarlo a ${AYUDA_CORREO}.</p>
-            <textarea id="ayuda-mensaje" placeholder="¿En qué te podemos ayudar?"></textarea>
-            ${state.ayudaError ? `<span style="font-size:11.5px;color:#B4472A;">${esc(state.ayudaError)}</span>` : ''}
-            <button onclick="enviarAyuda()" style="width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:${ACCENT};color:#FFFFFF;border-radius:12px;padding:13px;font-size:13.5px;font-weight:700;">Enviar por correo</button>
-          </div>` : ''}
+          ${state.ayudaOpen ? (
+            state.ayudaSent ? `
+            <div style="padding:4px 16px 16px;display:flex;flex-direction:column;gap:10px;">
+              ${state.ayudaAutomatico ? `
+              <p style="margin:0;font-size:11.5px;line-height:1.4;color:#2B5D3F;">Listo — tu mensaje ya se envió automáticamente a <strong>${AYUDA_CORREO}</strong>. No necesitas hacer nada más.</p>
+              ` : `
+              <p style="margin:0;font-size:11.5px;line-height:1.4;color:#2B5D3F;">Tu mensaje quedó listo para <strong>${AYUDA_CORREO}</strong> y se debió abrir tu app de correo con todo redactado — solo confírmalo ahí. Por si esa app no abrió sola, ya copiamos el mensaje: pégalo en cualquier correo nuevo dirigido a esa dirección.</p>
+              <button onclick="copiarTexto(state.ayudaUltimoMensaje)" style="width:100%;box-sizing:border-box;padding:12px;border-radius:12px;font-size:13px;font-weight:700;background:#F0ECE0;color:#1F2420;">Copiar mensaje de nuevo</button>
+              `}
+              <button onclick="reiniciarAyuda()" style="width:100%;box-sizing:border-box;padding:12px;border-radius:12px;font-size:13px;font-weight:700;background:transparent;color:#6B7268;border:1px solid #D8D3C4;">Escribir otro mensaje</button>
+            </div>` : `
+            <div style="padding:4px 16px 16px;display:flex;flex-direction:column;gap:10px;">
+              <p style="margin:0;font-size:11.5px;line-height:1.4;color:#6B7268;">Escribe tu mensaje — se manda directo a ${AYUDA_CORREO}.</p>
+              <textarea id="ayuda-mensaje" placeholder="¿En qué te podemos ayudar?" ${state.ayudaEnviando ? 'disabled' : ''}></textarea>
+              ${state.ayudaError ? `<span style="font-size:11.5px;color:#B4472A;">${esc(state.ayudaError)}</span>` : ''}
+              <button onclick="enviarAyuda()" ${state.ayudaEnviando ? 'disabled' : ''} style="width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:${ACCENT};color:#FFFFFF;border-radius:12px;padding:13px;font-size:13.5px;font-weight:700;opacity:${state.ayudaEnviando ? '0.6' : '1'};">${state.ayudaEnviando ? 'Enviando…' : 'Enviar por correo'}</button>
+            </div>`
+          ) : ''}
         </div>
       </div>
 
