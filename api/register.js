@@ -40,14 +40,19 @@ module.exports = async function handler(req, res) {
     const user = result.rows[0];
     const token = signToken(user);
 
-    // Correos: no bloqueamos la respuesta por esto, y si fallan no tronamos el registro.
-    mandarCorreoCliente(
-      user.email,
-      user.name,
-      'Bienvenido a ZANO',
-      'Gracias por crear tu cuenta en ZANO. Ya puedes entrar a la app y armar tu semana de comida sana.'
-    ).catch(() => {});
-    notificarDueño('Nueva cuenta en ZANO', 'Se registró: ' + user.name + ' (' + user.email + ')').catch(() => {});
+    // Correos: esperamos a que terminen (aunque fallen, no tronamos el registro)
+    // porque en Vercel la función se puede apagar en cuanto respondemos, y un
+    // envío "disparado y olvidado" se cortaría a la mitad sin avisar.
+    await Promise.all([
+      mandarCorreoCliente(
+        user.email,
+        user.name,
+        'Bienvenido a ZANO',
+        'Gracias por crear tu cuenta en ZANO. Ya puedes entrar a la app y armar tu semana de comida sana.'
+      ).catch((err) => { console.error('[register] Error mandando bienvenida:', err); }),
+      notificarDueño('Nueva cuenta en ZANO', 'Se registró: ' + user.name + ' (' + user.email + ')')
+        .catch((err) => { console.error('[register] Error avisando al dueño:', err); })
+    ]);
 
     res.status(200).json({ token, user });
   } catch (err) {
