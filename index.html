@@ -118,7 +118,7 @@
   .macro-tile { background: #FFFFFF; border: 1px solid var(--border); border-radius: 12px; padding: 10px 6px; text-align: center; }
   .macro-tile .val { font-size: 15px; font-weight: 700; color: var(--green); }
   .macro-tile .lbl { font-size: 10px; color: var(--muted); margin-top: 2px; }
-  input[type="text"], input[type="email"], input[type="password"], textarea {
+  input[type="text"], input[type="email"], input[type="password"], input[type="number"], select, textarea {
     width: 100%;
     box-sizing: border-box;
     font-family: 'Work Sans', sans-serif;
@@ -131,9 +131,17 @@
     outline: none;
   }
   textarea { resize: vertical; min-height: 90px; }
-  input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus, textarea:focus {
+  input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus, input[type="number"]:focus, select:focus, textarea:focus {
     border-color: var(--green);
   }
+  .admin-tab { flex: 1; text-align: center; padding: 10px 4px; border-radius: 11px; font-size: 11.5px; font-weight: 700; }
+  .admin-tab.active { background: var(--green); color: #FFFFFF; }
+  .admin-tab:not(.active) { color: var(--muted); }
+  .admin-stat { background: #FFFFFF; border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+  .admin-stat .val { font-family: 'Fraunces', serif; font-size: 22px; font-weight: 600; color: var(--text); }
+  .admin-stat .lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .admin-table-row { display: flex; align-items: center; justify-content: space-between; padding: 11px 0; border-bottom: 1px solid #F0ECE0; }
+  .admin-table-row:last-child { border-bottom: none; }
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-thumb { background: #D8D2C2; border-radius: 999px; }
 </style>
@@ -249,7 +257,19 @@ let state = {
   resetPassword: '',
   resetPassword2: '',
   resetError: '',
-  resetLoading: false
+  resetLoading: false,
+
+  // Panel de administración (solo para ti — ver /#admin). Independiente de
+  // la sesión de un cliente: usa su propia contraseña y su propio token.
+  adminToken: '',
+  adminPassword: '',
+  adminError: '',
+  adminLoading: false,
+  adminData: null,           // { customers, weeks, topDishesAllTime, costs }
+  adminTab: 'resumen',       // resumen | clientes | platillos | calendario | gastos
+  adminSelectedWeek: null,   // week_start elegido en Resumen/Calendario
+  adminCostSaving: false,
+  adminCostSaved: false
 };
 
 function setState(patch) {
@@ -270,6 +290,19 @@ function parsePriceNum(str) {
 
 function esc(str) {
   return String(str ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function fmtMoney(cents) {
+  return '$' + ((cents || 0) / 100).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtWeekLabel(weekStart) {
+  if (!weekStart) return '';
+  const [y, m, d] = weekStart.split('-').map(Number);
+  const monday = new Date(y, m - 1, d);
+  const sunday = new Date(y, m - 1, d + 6);
+  const opts = { day: 'numeric', month: 'short' };
+  return monday.toLocaleDateString('es-MX', opts) + ' – ' + sunday.toLocaleDateString('es-MX', opts);
 }
 
 function icon(name, extra) {
@@ -431,7 +464,13 @@ function guardarPedidoBackend(totalPesos) {
   apiFetch('/api/order-save', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + state.authToken },
-    body: { weekStart: computeWeekStartISO(), items: state.weekOrder, totalCents: Math.round((totalPesos || 0) * 100) }
+    body: {
+      weekStart: computeWeekStartISO(),
+      items: state.weekOrder,
+      totalCents: Math.round((totalPesos || 0) * 100),
+      horarios: state.horarios,
+      plantel: state.plantel
+    }
   }).catch(() => {});
 }
 
@@ -595,6 +634,94 @@ async function submitResetPassword() {
     }
   } catch (e) {
     setState({ resetLoading: false, resetError: 'No hay conexión con el servidor. Revisa tu internet e intenta de nuevo.' });
+  }
+}
+
+// ---------------------------------------------------------------------
+// Panel de administración (solo para ti — entras por tudominio.com/#admin)
+// ---------------------------------------------------------------------
+async function submitAdminLogin() {
+  const passInput = document.getElementById('admin-password');
+  const password = passInput ? passInput.value : '';
+  if (!password) {
+    setState({ adminError: 'Escribe la contraseña.' });
+    return;
+  }
+  setState({ adminError: '', adminLoading: true });
+  try {
+    const r = await apiFetch('/api/admin-login', { method: 'POST', body: { password } });
+    if (r.ok && r.data && r.data.token) {
+      setState({ adminLoading: false, adminToken: r.data.token, adminPassword: '', screen: 'admin' });
+      loadAdminData();
+    } else {
+      setState({ adminLoading: false, adminError: (r.data && r.data.error) || 'No se pudo entrar. Intenta de nuevo.' });
+    }
+  } catch (e) {
+    setState({ adminLoading: false, adminError: 'No hay conexión con el servidor. Revisa tu internet e intenta de nuevo.' });
+  }
+}
+
+async function loadAdminData() {
+  if (!state.adminToken) return;
+  setState({ adminLoading: true, adminError: '' });
+  try {
+    const r = await apiFetch('/api/admin-data', { headers: { Authorization: 'Bearer ' + state.adminToken } });
+    if (r.ok && r.data) {
+      const weeks = r.data.weeks || [];
+      setState({
+        adminLoading: false,
+        adminData: r.data,
+        adminSelectedWeek: state.adminSelectedWeek || (weeks[0] ? weeks[0].weekStart : null)
+      });
+    } else if (r.status === 401) {
+      setState({ adminLoading: false, adminToken: '', adminData: null, adminError: 'Tu sesión de administrador venció. Vuelve a entrar.', screen: 'adminLogin' });
+    } else {
+      setState({ adminLoading: false, adminError: (r.data && r.data.error) || 'No se pudieron cargar los datos.' });
+    }
+  } catch (e) {
+    setState({ adminLoading: false, adminError: 'No hay conexión con el servidor. Revisa tu internet e intenta de nuevo.' });
+  }
+}
+
+function adminLogout() {
+  setState({
+    screen: 'adminLogin',
+    adminToken: '',
+    adminData: null,
+    adminPassword: '',
+    adminError: '',
+    adminTab: 'resumen',
+    adminSelectedWeek: null
+  });
+}
+
+async function saveAdminCost() {
+  if (!state.adminSelectedWeek) return;
+  const ingredientesInput = document.getElementById('admin-cost-ingredientes');
+  const empaqueInput = document.getElementById('admin-cost-empaque');
+  const otrosInput = document.getElementById('admin-cost-otros');
+  const notasInput = document.getElementById('admin-cost-notas');
+  setState({ adminCostSaving: true, adminCostSaved: false });
+  try {
+    const r = await apiFetch('/api/admin-costs', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + state.adminToken },
+      body: {
+        weekStart: state.adminSelectedWeek,
+        ingredientesCents: Math.round((parseFloat(ingredientesInput ? ingredientesInput.value : 0) || 0) * 100),
+        empaqueCents: Math.round((parseFloat(empaqueInput ? empaqueInput.value : 0) || 0) * 100),
+        otrosGastosCents: Math.round((parseFloat(otrosInput ? otrosInput.value : 0) || 0) * 100),
+        notas: notasInput ? notasInput.value : ''
+      }
+    });
+    if (r.ok) {
+      setState({ adminCostSaving: false, adminCostSaved: true });
+      loadAdminData();
+    } else {
+      setState({ adminCostSaving: false, adminError: (r.data && r.data.error) || 'No se pudieron guardar los gastos.' });
+    }
+  } catch (e) {
+    setState({ adminCostSaving: false, adminError: 'No hay conexión con el servidor.' });
   }
 }
 
@@ -1043,6 +1170,279 @@ function renderReset() {
         <button onclick="reenviarCodigoReset()" style="font-size:12.5px;font-weight:600;color:#2B5D3F;">Reenviar código</button>
         <button onclick="setState({screen:'auth', authMode:'login', forgotError:''})" style="font-size:12.5px;font-weight:600;color:#6B7268;">Volver a iniciar sesión</button>
       </div>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------
+// Render: Panel de administración (solo para ti)
+// ---------------------------------------------------------------------
+function renderAdminLogin() {
+  return `
+    <div style="display:flex;flex-direction:column;gap:22px;padding-top:16px;">
+      <div style="display:flex;align-items:center;gap:8px;justify-content:center;">
+        ${icon('leaf', { w: 26, h: 26, stroke: '#2B5D3F', sw: 1.7 })}
+        <span style="font-family:'Work Sans',sans-serif;font-size:22px;font-weight:700;letter-spacing:0.5px;color:#2B5D3F;">ZANO</span>
+      </div>
+
+      <div>
+        <h1 style="margin:0 0 6px 0;font-family:'Fraunces',serif;font-weight:600;font-size:24px;text-align:center;color:#1F2420;">Panel de administración</h1>
+        <p style="margin:0;font-size:13.5px;line-height:1.5;color:#6B7268;text-align:center;">Solo para ti — ventas, clientes, platillos y gastos del negocio.</p>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Contraseña</label>
+        <input id="admin-password" type="password" placeholder="Contraseña de administrador" onkeydown="if(event.key==='Enter') submitAdminLogin()">
+      </div>
+
+      ${state.adminError ? `
+      <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;">
+        ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
+        <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">${esc(state.adminError)}</span>
+      </div>` : ''}
+
+      <button onclick="submitAdminLogin()" class="pill-btn" ${state.adminLoading ? 'disabled' : ''}>${state.adminLoading ? 'Entrando…' : 'Entrar'}</button>
+
+      <button onclick="setState({screen:'landing', adminError:''})" style="font-size:12.5px;font-weight:600;color:#6B7268;text-align:center;">Volver a ZANO</button>
+    </div>
+  `;
+}
+
+function renderAdminWeekPicker(data) {
+  const weeks = data.weeks || [];
+  if (weeks.length === 0) {
+    return '<p style="margin:0;font-size:12.5px;color:#9AA096;">Todavía no hay semanas con pedidos pagados.</p>';
+  }
+  const current = state.adminSelectedWeek || weeks[0].weekStart;
+  return `
+    <select onchange="setState({adminSelectedWeek:this.value, adminCostSaved:false})">
+      ${weeks.map((w) => `<option value="${w.weekStart}" ${current === w.weekStart ? 'selected' : ''}>${esc(fmtWeekLabel(w.weekStart))}</option>`).join('')}
+    </select>
+  `;
+}
+
+function renderAdminResumen(data) {
+  const weeks = data.weeks || [];
+  const costs = data.costs || [];
+  const week = weeks.find((w) => w.weekStart === state.adminSelectedWeek) || weeks[0] || null;
+  const cost = week ? costs.find((c) => c.weekStart === week.weekStart) : null;
+
+  const ventas = week ? week.ventasCents : 0;
+  const cogs = cost ? (cost.ingredientesCents + cost.empaqueCents) : 0;
+  const opex = cost ? cost.otrosGastosCents : 0;
+  const bruta = ventas - cogs;
+  const neta = bruta - opex;
+
+  const ventasTotalAllTime = weeks.reduce((s, w) => s + w.ventasCents, 0);
+  const pedidosTotalAllTime = weeks.reduce((s, w) => s + w.pedidosPagados, 0);
+
+  return `
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div>
+        <div style="font-size:11.5px;font-weight:700;color:#6B7268;margin-bottom:6px;">SEMANA</div>
+        ${renderAdminWeekPicker(data)}
+      </div>
+
+      ${week ? `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="admin-stat"><div class="val">${fmtMoney(ventas)}</div><div class="lbl">Ventas de la semana</div></div>
+        <div class="admin-stat"><div class="val">${week.pedidosPagados}</div><div class="lbl">Pedidos pagados</div></div>
+        <div class="admin-stat"><div class="val" style="color:${bruta >= 0 ? '#2B5D3F' : '#B4472A'};">${fmtMoney(bruta)}</div><div class="lbl">Ganancia bruta</div></div>
+        <div class="admin-stat"><div class="val" style="color:${neta >= 0 ? '#2B5D3F' : '#B4472A'};">${fmtMoney(neta)}</div><div class="lbl">Ganancia neta</div></div>
+      </div>
+      ${!cost ? `
+      <div style="display:flex;gap:8px;align-items:flex-start;background:#F0ECE0;border-radius:12px;padding:12px 14px;">
+        ${icon('info', { w: 16, h: 16, stroke: '#6B7268', sw: 1.8 })}
+        <span style="font-size:12px;line-height:1.4;color:#6B7268;">Todavía no capturas los gastos de esta semana, por eso la ganancia sale igual a las ventas. Ve a la pestaña "Gastos" para meterlos.</span>
+      </div>` : ''}
+      ` : `<p style="margin:0;font-size:12.5px;color:#9AA096;">Elige una semana con pedidos pagados.</p>`}
+
+      <div class="card" style="padding:14px;">
+        <div style="font-size:11.5px;font-weight:700;color:#6B7268;margin-bottom:4px;">ACUMULADO (últimos 6 meses)</div>
+        <div class="admin-table-row"><span style="font-size:13px;color:#1F2420;">Ventas totales</span><span style="font-size:13px;font-weight:700;color:#1F2420;">${fmtMoney(ventasTotalAllTime)}</span></div>
+        <div class="admin-table-row"><span style="font-size:13px;color:#1F2420;">Pedidos pagados</span><span style="font-size:13px;font-weight:700;color:#1F2420;">${pedidosTotalAllTime}</span></div>
+        <div class="admin-table-row"><span style="font-size:13px;color:#1F2420;">Clientes registrados</span><span style="font-size:13px;font-weight:700;color:#1F2420;">${(data.customers || []).length}</span></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderAdminClientes(data) {
+  const customers = data.customers || [];
+  if (customers.length === 0) {
+    return `<p style="margin:0;font-size:12.5px;color:#9AA096;text-align:center;padding:24px 0;">Todavía no hay clientes registrados.</p>`;
+  }
+  return `
+    <div class="card" style="padding:2px 14px;">
+      ${customers.map((c) => `
+        <div class="admin-table-row" style="align-items:flex-start;flex-direction:column;gap:3px;padding:12px 0;">
+          <div style="display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;">
+            <span style="font-size:13.5px;font-weight:700;color:#1F2420;">${esc(c.name)}</span>
+            <span style="font-size:10.5px;color:#9AA096;flex-shrink:0;">desde ${esc(c.createdAt)}</span>
+          </div>
+          <span style="font-size:12px;color:#6B7268;">${esc(c.email)}${c.phone ? ' · ' + esc(c.phone) : ''}</span>
+          ${c.plantel ? `<span style="font-size:11.5px;color:#2B5D3F;font-weight:600;">${esc(c.plantel)}</span>` : ''}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderAdminPlatillos(data) {
+  const weeks = data.weeks || [];
+  const week = weeks.find((w) => w.weekStart === state.adminSelectedWeek) || weeks[0] || null;
+  const weekDishes = week
+    ? Object.entries(week.dishCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count)
+    : [];
+  const allTime = data.topDishesAllTime || [];
+  const maxWeek = weekDishes[0] ? weekDishes[0].count : 1;
+  const maxAll = allTime[0] ? allTime[0].count : 1;
+
+  const renderList = (list, max) => list.length === 0
+    ? `<p style="margin:0;font-size:12.5px;color:#9AA096;">Sin pedidos todavía.</p>`
+    : list.map((d) => `
+        <div style="margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px;">
+            <span style="font-weight:600;color:#1F2420;">${esc(d.name)}</span>
+            <span style="color:#6B7268;">${d.count}</span>
+          </div>
+          <div style="height:7px;border-radius:999px;background:#F0ECE0;overflow:hidden;">
+            <div style="height:100%;width:${Math.max(6, (d.count / max) * 100)}%;background:#2B5D3F;border-radius:999px;"></div>
+          </div>
+        </div>
+      `).join('');
+
+  return `
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div>
+        <div style="font-size:11.5px;font-weight:700;color:#6B7268;margin-bottom:6px;">SEMANA</div>
+        ${renderAdminWeekPicker(data)}
+      </div>
+      <div class="card" style="padding:14px;">
+        <div style="font-size:11.5px;font-weight:700;color:#6B7268;margin-bottom:10px;">MÁS PEDIDOS ESTA SEMANA</div>
+        ${renderList(weekDishes, maxWeek)}
+      </div>
+      <div class="card" style="padding:14px;">
+        <div style="font-size:11.5px;font-weight:700;color:#6B7268;margin-bottom:10px;">HISTÓRICO (últimos 6 meses)</div>
+        ${renderList(allTime, maxAll)}
+      </div>
+    </div>
+  `;
+}
+
+function renderAdminCalendario(data) {
+  const weeks = data.weeks || [];
+  const week = weeks.find((w) => w.weekStart === state.adminSelectedWeek) || weeks[0] || null;
+
+  return `
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div>
+        <div style="font-size:11.5px;font-weight:700;color:#6B7268;margin-bottom:6px;">SEMANA</div>
+        ${renderAdminWeekPicker(data)}
+      </div>
+      ${!week ? `<p style="margin:0;font-size:12.5px;color:#9AA096;">Elige una semana con pedidos pagados.</p>` : DIAS.map((dia) => {
+        const entregas = week.calendario[dia] || [];
+        return `
+          <div class="card" style="padding:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:${entregas.length ? '8px' : '0'};">
+              <span style="font-size:13.5px;font-weight:700;color:#1F2420;">${dia}</span>
+              <span style="font-size:11px;color:#9AA096;">${entregas.length} entrega${entregas.length === 1 ? '' : 's'}</span>
+            </div>
+            ${entregas.map((e) => `
+              <div class="admin-table-row">
+                <div style="display:flex;flex-direction:column;gap:2px;">
+                  <span style="font-size:12.5px;font-weight:600;color:#1F2420;">${esc(e.nombre)}</span>
+                  <span style="font-size:11px;color:#6B7268;">${esc(e.platillo)}${e.plantel ? ' · ' + esc(e.plantel) : ''}</span>
+                </div>
+                <span style="font-size:11.5px;font-weight:700;color:#2B5D3F;">${esc(e.horario || '—')}</span>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderAdminGastos(data) {
+  const weeks = data.weeks || [];
+  const costs = data.costs || [];
+  const selectedWeek = state.adminSelectedWeek || (weeks[0] && weeks[0].weekStart) || null;
+  const existing = costs.find((c) => c.weekStart === selectedWeek) || null;
+
+  const ingredientesVal = existing ? (existing.ingredientesCents / 100).toFixed(2) : '';
+  const empaqueVal = existing ? (existing.empaqueCents / 100).toFixed(2) : '';
+  const otrosVal = existing ? (existing.otrosGastosCents / 100).toFixed(2) : '';
+  const notasVal = existing ? existing.notas : '';
+
+  return `
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div>
+        <div style="font-size:11.5px;font-weight:700;color:#6B7268;margin-bottom:6px;">SEMANA</div>
+        ${renderAdminWeekPicker(data)}
+      </div>
+
+      ${!selectedWeek ? `<p style="margin:0;font-size:12.5px;color:#9AA096;">Elige una semana con pedidos pagados para registrarle gastos.</p>` : `
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Ingredientes ($)</label>
+        <input id="admin-cost-ingredientes" type="number" inputmode="decimal" step="0.01" min="0" value="${ingredientesVal}" placeholder="0.00">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Empaque ($)</label>
+        <input id="admin-cost-empaque" type="number" inputmode="decimal" step="0.01" min="0" value="${empaqueVal}" placeholder="0.00">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Otros gastos ($) <span style="font-weight:400;color:#9AA096;">— transporte, gas, etc.</span></label>
+        <input id="admin-cost-otros" type="number" inputmode="decimal" step="0.01" min="0" value="${otrosVal}" placeholder="0.00">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Notas (opcional)</label>
+        <textarea id="admin-cost-notas" placeholder="Ej. compré de más para la próxima semana">${esc(notasVal)}</textarea>
+      </div>
+
+      <button onclick="saveAdminCost()" class="pill-btn" ${state.adminCostSaving ? 'disabled' : ''}>${state.adminCostSaving ? 'Guardando…' : 'Guardar gastos de la semana'}</button>
+      ${state.adminCostSaved ? `<div style="display:flex;align-items:center;gap:6px;justify-content:center;">${icon('check', { w: 14, h: 14, stroke: '#2B5D3F', sw: 2.2 })}<span style="font-size:12px;color:#2B5D3F;">Guardado.</span></div>` : ''}
+      `}
+    </div>
+  `;
+}
+
+function renderAdmin() {
+  const data = state.adminData;
+  const tabs = [
+    { key: 'resumen', label: 'Resumen' },
+    { key: 'clientes', label: 'Clientes' },
+    { key: 'platillos', label: 'Platillos' },
+    { key: 'calendario', label: 'Entregas' },
+    { key: 'gastos', label: 'Gastos' }
+  ];
+  return `
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-family:'Fraunces',serif;font-size:20px;font-weight:600;color:#1F2420;">Administración</div>
+          <div style="font-size:11.5px;color:#6B7268;">Solo visible para ti</div>
+        </div>
+        <button onclick="adminLogout()" style="font-size:12px;font-weight:700;color:#B4472A;padding:8px 12px;border-radius:10px;border:1px solid #EFD7CE;flex-shrink:0;">Salir</button>
+      </div>
+
+      <div class="card" style="display:flex;gap:4px;padding:4px;">
+        ${tabs.map((t) => `<button onclick='setState({adminTab:${JSON.stringify(t.key)}})' class="admin-tab ${state.adminTab === t.key ? 'active' : ''}">${t.label}</button>`).join('')}
+      </div>
+
+      ${state.adminError ? `
+      <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;">
+        ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
+        <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">${esc(state.adminError)}</span>
+      </div>` : ''}
+
+      ${!data ? `
+      <div style="text-align:center;padding:40px 0;color:#9AA096;font-size:13px;">${state.adminLoading ? 'Cargando…' : 'Sin datos todavía.'}</div>
+      ` : state.adminTab === 'resumen' ? renderAdminResumen(data)
+        : state.adminTab === 'clientes' ? renderAdminClientes(data)
+        : state.adminTab === 'platillos' ? renderAdminPlatillos(data)
+        : state.adminTab === 'calendario' ? renderAdminCalendario(data)
+        : renderAdminGastos(data)}
     </div>
   `;
 }
@@ -1612,13 +2012,15 @@ function renderPerfilInfo() {
 function render() {
   const contentEl = document.getElementById('content');
   const navEl = document.getElementById('nav');
-  const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth' && state.screen !== 'perfilInfo' && state.screen !== 'forgot' && state.screen !== 'reset' && state.screen !== 'landing';
+  const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth' && state.screen !== 'perfilInfo' && state.screen !== 'forgot' && state.screen !== 'reset' && state.screen !== 'landing' && state.screen !== 'adminLogin' && state.screen !== 'admin';
 
   let html = '';
   if (state.screen === 'landing') html = renderLanding();
   else if (state.screen === 'auth') html = renderAuth();
   else if (state.screen === 'forgot') html = renderForgot();
   else if (state.screen === 'reset') html = renderReset();
+  else if (state.screen === 'adminLogin') html = renderAdminLogin();
+  else if (state.screen === 'admin') html = renderAdmin();
   else if (state.screen === 'inicio') html = renderInicio();
   else if (state.screen === 'menu') html = state.selected ? renderMenuDetail() : renderMenuList();
   else if (state.screen === 'semana') html = renderSemana();
@@ -1665,6 +2067,12 @@ function render() {
   } else {
     navEl.style.display = 'none';
   }
+}
+
+// Entra directo al panel de administración cuando abres tudominio.com/#admin
+// (nunca aparece en la navegación normal de la app, es solo para ti).
+if (location.hash === '#admin') {
+  state = { ...state, screen: 'adminLogin' };
 }
 
 render();
