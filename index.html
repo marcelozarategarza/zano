@@ -236,7 +236,16 @@ let state = {
   ayudaAutomatico: false,
   ayudaUltimoMensaje: '',
   historialTab: 'proximos',
-  profileInfoError: ''
+  profileInfoError: '',
+  authNotice: '',
+  forgotEmail: '',
+  forgotError: '',
+  forgotLoading: false,
+  resetCode: '',
+  resetPassword: '',
+  resetPassword2: '',
+  resetError: '',
+  resetLoading: false
 };
 
 function setState(patch) {
@@ -494,6 +503,98 @@ async function submitAuth() {
 }
 
 // ---------------------------------------------------------------------
+// Olvidé mi contraseña (necesita el backend: manda un código por correo,
+// no funciona en modo local sin servidor desplegado)
+// ---------------------------------------------------------------------
+async function solicitarCodigoReset() {
+  const emailInput = document.getElementById('forgot-email');
+  const email = (emailInput ? emailInput.value.trim() : '').toLowerCase();
+
+  if (!email || !email.includes('@') || !email.includes('.')) {
+    setState({ forgotError: 'Ingresa un correo válido.', forgotEmail: email });
+    return;
+  }
+
+  setState({ forgotError: '', forgotLoading: true, forgotEmail: email });
+  try {
+    const r = await apiFetch('/api/forgot-password', { method: 'POST', body: { email } });
+    if (r.ok) {
+      setState({
+        screen: 'reset',
+        forgotLoading: false,
+        forgotEmail: email,
+        resetCode: '',
+        resetPassword: '',
+        resetPassword2: '',
+        resetError: ''
+      });
+    } else {
+      setState({ forgotLoading: false, forgotError: (r.data && r.data.error) || 'No se pudo enviar el código. Intenta de nuevo.' });
+    }
+  } catch (e) {
+    setState({ forgotLoading: false, forgotError: 'No hay conexión con el servidor. Revisa tu internet e intenta de nuevo, o escríbenos por Ayuda.' });
+  }
+}
+
+async function reenviarCodigoReset() {
+  if (!state.forgotEmail) return;
+  setState({ resetError: '', resetLoading: true });
+  try {
+    await apiFetch('/api/forgot-password', { method: 'POST', body: { email: state.forgotEmail } });
+    setState({ resetLoading: false, resetError: 'Te mandamos un código nuevo.', resetCode: '' });
+  } catch (e) {
+    setState({ resetLoading: false, resetError: 'No se pudo reenviar el código. Intenta de nuevo.' });
+  }
+}
+
+async function submitResetPassword() {
+  const codeInput = document.getElementById('reset-code');
+  const passInput = document.getElementById('reset-password');
+  const pass2Input = document.getElementById('reset-password2');
+  const code = codeInput ? codeInput.value.trim() : '';
+  const newPassword = passInput ? passInput.value : '';
+  const newPassword2 = pass2Input ? pass2Input.value : '';
+
+  if (!code) {
+    setState({ resetError: 'Ingresa el código de 6 dígitos que te mandamos por correo.', resetCode: code, resetPassword: newPassword, resetPassword2: newPassword2 });
+    return;
+  }
+  if (newPassword.length < 6) {
+    setState({ resetError: 'La contraseña debe tener al menos 6 caracteres.', resetCode: code, resetPassword: newPassword, resetPassword2: newPassword2 });
+    return;
+  }
+  if (newPassword !== newPassword2) {
+    setState({ resetError: 'Las dos contraseñas no son iguales.', resetCode: code, resetPassword: newPassword, resetPassword2: newPassword2 });
+    return;
+  }
+
+  setState({ resetError: '', resetLoading: true, resetCode: code, resetPassword: newPassword, resetPassword2: newPassword2 });
+  try {
+    const r = await apiFetch('/api/reset-password', { method: 'POST', body: { email: state.forgotEmail, code, newPassword } });
+    if (r.ok) {
+      setState({
+        screen: 'auth',
+        authMode: 'login',
+        authEmail: state.forgotEmail,
+        authPassword: '',
+        authError: '',
+        authNotice: 'Tu contraseña se actualizó. Inicia sesión con tu contraseña nueva.',
+        forgotEmail: '',
+        resetCode: '',
+        resetPassword: '',
+        resetPassword2: '',
+        resetError: '',
+        resetLoading: false
+      });
+    } else {
+      setState({ resetLoading: false, resetError: (r.data && r.data.error) || 'No se pudo restablecer la contraseña. Intenta de nuevo.' });
+    }
+  } catch (e) {
+    setState({ resetLoading: false, resetError: 'No hay conexión con el servidor. Revisa tu internet e intenta de nuevo.' });
+  }
+}
+
+// ---------------------------------------------------------------------
 // Cobro real (PayPal, sin backend)
 // ---------------------------------------------------------------------
 function mountPayPalButton(amount) {
@@ -564,7 +665,16 @@ function logout() {
     ayudaAutomatico: false,
     ayudaUltimoMensaje: '',
     historialTab: 'proximos',
-    profileInfoError: ''
+    profileInfoError: '',
+    authNotice: '',
+    forgotEmail: '',
+    forgotError: '',
+    forgotLoading: false,
+    resetCode: '',
+    resetPassword: '',
+    resetPassword2: '',
+    resetError: '',
+    resetLoading: false
   });
 }
 
@@ -760,8 +870,8 @@ function renderAuth() {
       </div>
 
       <div style="display:flex;background:#F0ECE0;border-radius:999px;padding:4px;gap:4px;">
-        <button onclick="setState({authMode:'login', authError:''})" style="flex:1;padding:10px;border-radius:999px;font-size:13px;font-weight:700;background:${!isSignup ? '#FFFFFF' : 'transparent'};color:${!isSignup ? '#1F2420' : '#6B7268'};">Iniciar sesión</button>
-        <button onclick="setState({authMode:'signup', authError:''})" style="flex:1;padding:10px;border-radius:999px;font-size:13px;font-weight:700;background:${isSignup ? '#FFFFFF' : 'transparent'};color:${isSignup ? '#1F2420' : '#6B7268'};">Crear cuenta</button>
+        <button onclick="setState({authMode:'login', authError:'', authNotice:''})" style="flex:1;padding:10px;border-radius:999px;font-size:13px;font-weight:700;background:${!isSignup ? '#FFFFFF' : 'transparent'};color:${!isSignup ? '#1F2420' : '#6B7268'};">Iniciar sesión</button>
+        <button onclick="setState({authMode:'signup', authError:'', authNotice:''})" style="flex:1;padding:10px;border-radius:999px;font-size:13px;font-weight:700;background:${isSignup ? '#FFFFFF' : 'transparent'};color:${isSignup ? '#1F2420' : '#6B7268'};">Crear cuenta</button>
       </div>
 
       <div style="display:flex;flex-direction:column;gap:12px;">
@@ -778,7 +888,15 @@ function renderAuth() {
           <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Contraseña</label>
           <input id="auth-password" type="password" value="${esc(state.authPassword)}" placeholder="Mínimo 6 caracteres">
         </div>
+        ${!isSignup ? `
+        <button onclick="setState({screen:'forgot', forgotError:'', forgotEmail: state.authEmail})" style="align-self:flex-end;font-size:12.5px;font-weight:600;color:#2B5D3F;">¿Olvidaste tu contraseña?</button>` : ''}
       </div>
+
+      ${state.authNotice ? `
+      <div style="display:flex;gap:8px;align-items:flex-start;background:#E4ECE1;border-radius:12px;padding:12px 14px;">
+        ${icon('check', { w: 16, h: 16, stroke: '#2B5D3F', sw: 2.2 })}
+        <span style="font-size:12.5px;line-height:1.4;color:#2B5D3F;">${esc(state.authNotice)}</span>
+      </div>` : ''}
 
       ${state.authError ? `
       <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;">
@@ -787,8 +905,87 @@ function renderAuth() {
       </div>` : ''}
 
       <button onclick="submitAuth()" class="pill-btn">${isSignup ? 'Crear cuenta' : 'Iniciar sesión'}</button>
+    </div>
+  `;
+}
 
-      <p style="margin:0;font-size:11px;line-height:1.5;color:#9AA096;text-align:center;">Esta es una demo: tu cuenta se guarda solo mientras tengas esta pestaña abierta, no hay servidor real detrás todavía.</p>
+// ---------------------------------------------------------------------
+// Render: Olvidé mi contraseña (paso 1: pedir el código)
+// ---------------------------------------------------------------------
+function renderForgot() {
+  return `
+    <div style="display:flex;flex-direction:column;gap:22px;padding-top:16px;">
+      <div style="display:flex;align-items:center;gap:8px;justify-content:center;">
+        ${icon('leaf', { w: 26, h: 26, stroke: '#2B5D3F', sw: 1.7 })}
+        <span style="font-family:'Work Sans',sans-serif;font-size:22px;font-weight:700;letter-spacing:0.5px;color:#2B5D3F;">ZANO</span>
+      </div>
+
+      <div>
+        <h1 style="margin:0 0 6px 0;font-family:'Fraunces',serif;font-weight:600;font-size:26px;text-align:center;color:#1F2420;">Recupera tu contraseña</h1>
+        <p style="margin:0;font-size:13.5px;line-height:1.5;color:#6B7268;text-align:center;">Escribe el correo de tu cuenta y te mandamos un código para crear una contraseña nueva.</p>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Correo</label>
+        <input id="forgot-email" type="email" value="${esc(state.forgotEmail)}" placeholder="tucorreo@ejemplo.com">
+      </div>
+
+      ${state.forgotError ? `
+      <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;">
+        ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
+        <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">${esc(state.forgotError)}</span>
+      </div>` : ''}
+
+      <button onclick="solicitarCodigoReset()" class="pill-btn" ${state.forgotLoading ? 'disabled' : ''}>${state.forgotLoading ? 'Enviando…' : 'Enviar código'}</button>
+
+      <button onclick="setState({screen:'auth', authMode:'login', forgotError:''})" style="font-size:12.5px;font-weight:600;color:#6B7268;text-align:center;">Volver a iniciar sesión</button>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------
+// Render: Olvidé mi contraseña (paso 2: código + contraseña nueva)
+// ---------------------------------------------------------------------
+function renderReset() {
+  return `
+    <div style="display:flex;flex-direction:column;gap:22px;padding-top:16px;">
+      <div style="display:flex;align-items:center;gap:8px;justify-content:center;">
+        ${icon('leaf', { w: 26, h: 26, stroke: '#2B5D3F', sw: 1.7 })}
+        <span style="font-family:'Work Sans',sans-serif;font-size:22px;font-weight:700;letter-spacing:0.5px;color:#2B5D3F;">ZANO</span>
+      </div>
+
+      <div>
+        <h1 style="margin:0 0 6px 0;font-family:'Fraunces',serif;font-weight:600;font-size:26px;text-align:center;color:#1F2420;">Revisa tu correo</h1>
+        <p style="margin:0;font-size:13.5px;line-height:1.5;color:#6B7268;text-align:center;">Te mandamos un código de 6 dígitos a <strong>${esc(state.forgotEmail)}</strong>. Vence en 15 minutos.</p>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Código de 6 dígitos</label>
+          <input id="reset-code" type="text" inputmode="numeric" maxlength="6" value="${esc(state.resetCode)}" placeholder="000000">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Contraseña nueva</label>
+          <input id="reset-password" type="password" value="${esc(state.resetPassword)}" placeholder="Mínimo 6 caracteres">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Repite la contraseña nueva</label>
+          <input id="reset-password2" type="password" value="${esc(state.resetPassword2)}" placeholder="Escríbela de nuevo">
+        </div>
+      </div>
+
+      ${state.resetError ? `
+      <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;">
+        ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
+        <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">${esc(state.resetError)}</span>
+      </div>` : ''}
+
+      <button onclick="submitResetPassword()" class="pill-btn" ${state.resetLoading ? 'disabled' : ''}>${state.resetLoading ? 'Guardando…' : 'Restablecer contraseña'}</button>
+
+      <div style="display:flex;justify-content:space-between;gap:12px;">
+        <button onclick="reenviarCodigoReset()" style="font-size:12.5px;font-weight:600;color:#2B5D3F;">Reenviar código</button>
+        <button onclick="setState({screen:'auth', authMode:'login', forgotError:''})" style="font-size:12.5px;font-weight:600;color:#6B7268;">Volver a iniciar sesión</button>
+      </div>
     </div>
   `;
 }
@@ -1358,10 +1555,12 @@ function renderPerfilInfo() {
 function render() {
   const contentEl = document.getElementById('content');
   const navEl = document.getElementById('nav');
-  const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth' && state.screen !== 'perfilInfo';
+  const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth' && state.screen !== 'perfilInfo' && state.screen !== 'forgot' && state.screen !== 'reset';
 
   let html = '';
   if (state.screen === 'auth') html = renderAuth();
+  else if (state.screen === 'forgot') html = renderForgot();
+  else if (state.screen === 'reset') html = renderReset();
   else if (state.screen === 'inicio') html = renderInicio();
   else if (state.screen === 'menu') html = state.selected ? renderMenuDetail() : renderMenuList();
   else if (state.screen === 'semana') html = renderSemana();
