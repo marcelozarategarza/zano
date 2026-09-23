@@ -38,3 +38,22 @@ CREATE TABLE IF NOT EXISTS weekly_orders (
 
 CREATE INDEX IF NOT EXISTS idx_weekly_orders_user ON weekly_orders (user_id);
 CREATE INDEX IF NOT EXISTS idx_weekly_orders_status ON weekly_orders (status);
+
+-- Igual que arriba con reset_code_hash: si ya habías corrido este archivo,
+-- estas 2 líneas agregan las columnas nuevas (horario de recogida elegido por
+-- día, e institución al momento del pedido) sin tocar nada más.
+ALTER TABLE weekly_orders ADD COLUMN IF NOT EXISTS horarios JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE weekly_orders ADD COLUMN IF NOT EXISTS plantel TEXT;
+
+-- Gastos por semana (los metes tú a mano en el panel de administración) para
+-- poder calcular ganancia bruta y neta junto con las ventas de weekly_orders.
+CREATE TABLE IF NOT EXISTS weekly_costs (
+  id SERIAL PRIMARY KEY,
+  week_start DATE NOT NULL UNIQUE,
+  ingredientes_cents INTEGER NOT NULL DEFAULT 0,
+  empaque_cents INTEGER NOT NULL DEFAULT 0,
+  otros_gastos_cents INTEGER NOT NULL DEFAULT 0,
+  notas TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
