@@ -24,4 +24,18 @@ function getUserFromRequest(req) {
   return verifyToken(token);
 }
 
-module.exports = { signToken, verifyToken, getUserFromRequest };
+// Sesión de administrador (panel de negocio) — token aparte, sin ligar a
+// ningún usuario, solo dice "esta persona puso la contraseña de admin".
+function signAdminToken() {
+  return jwt.sign({ role: 'admin' }, SECRET, { expiresIn: '30d' });
+}
+
+function getAdminFromRequest(req) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) return null;
+  const payload = verifyToken(token);
+  return payload && payload.role === 'admin' ? payload : null;
+}
+
+module.exports = { signToken, verifyToken, getUserFromRequest, signAdminToken, getAdminFromRequest };
