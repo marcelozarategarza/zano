@@ -10,8 +10,16 @@ CREATE TABLE IF NOT EXISTS users (
   phone TEXT NOT NULL DEFAULT '',
   plantel TEXT,
   last_reminder_week DATE,
+  reset_code_hash TEXT,
+  reset_code_expires TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Si ya habías corrido este archivo antes (la tabla users ya existía sin estas
+-- 2 columnas), estas líneas las agregan sin tocar nada más. Es seguro volver a
+-- correr TODO este archivo otra vez, no duplica ni borra nada.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_code_hash TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_code_expires TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS weekly_orders (
   id SERIAL PRIMARY KEY,
