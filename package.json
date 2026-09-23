@@ -7,6 +7,6 @@
     "pg": "^8.11.5",
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
-    "@emailjs/nodejs": "^2.0.0"
+    "@emailjs/nodejs": "^5.0.2"
   }
 }
