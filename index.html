@@ -6,11 +6,36 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#EDE7D8">
+<!--
+  Este color debe ser IGUAL al fondo real de la app (var(--bg) más abajo),
+  no el beige más oscuro de atrás del "teléfono" en la vista de escritorio.
+  Si no coinciden, en el celular (sobre todo agregada a la pantalla de
+  inicio, en modo standalone) se alcanza a ver una rayita de ese color
+  distinto justo en la orilla de abajo, encima del indicador de inicio.
+-->
+<meta name="theme-color" content="#FAF8F3">
 <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
-<link rel="manifest" href="/manifest.json">
+<link rel="manifest" href="/manifest.json" id="manifest-link">
+<script>
+  // Si entras directo a /#admin o /#staff y desde ahí usas "Compartir ->
+  // Agregar a pantalla de inicio", el teléfono NO usa la URL que ves en la
+  // barra de direcciones para decidir a dónde abrir el ícono nuevo — usa el
+  // "start_url" que diga el manifest.json cargado en ese momento. Por eso
+  // antes, sin importar desde cuál pantalla lo agregaras, el ícono siempre
+  // terminaba abriendo como si fueras un cliente (start_url "/" del
+  // manifest normal). Este script cambia el manifest ANTES de que exista
+  // oportunidad de tocar "Agregar a inicio", para que cada ícono recuerde
+  // a dónde debe abrir.
+  (function () {
+    var hash = window.location.hash;
+    var link = document.getElementById('manifest-link');
+    if (!link) return;
+    if (hash === '#admin') link.href = '/manifest-admin.json';
+    else if (hash === '#staff') link.href = '/manifest-staff.json';
+  })();
+</script>
 <title>ZANO — App de pedidos</title>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <!--
@@ -85,7 +110,11 @@
     /* En el teléfono real, body ya no debe verse nunca (el #phone ocupa
        toda la pantalla) — pero por si algún navegador deja un pixelito
        sin cubrir en la zona del home indicator, que sea del mismo color
-       que el fondo de la app y no se note como una línea aparte. */
+       que el fondo de la app y no se note como una línea aparte. "html"
+       se pone del mismo color por la misma razón: en modo standalone
+       (agregada a pantalla de inicio) algunos navegadores pintan esa
+       orilla con el fondo de <html>, no el de <body>. */
+    html { background: var(--bg); }
     body { padding: 0; background: var(--bg); }
     #phone {
       width: 100vw;
