@@ -156,7 +156,7 @@
   #nav {
     position: absolute;
     left: 0; right: 0; bottom: 0;
-    height: calc(60px + env(safe-area-inset-bottom, 0px));
+    height: calc(50px + env(safe-area-inset-bottom, 0px));
     background: #FFFFFF;
     border-top: 1px solid var(--border);
     display: flex;
@@ -2672,21 +2672,19 @@ function render() {
   else if (state.screen === 'perfil') html = renderPerfil();
   else if (state.screen === 'perfilInfo') html = renderPerfilInfo();
 
-  contentEl.style.bottom = showNav ? 'calc(60px + env(safe-area-inset-bottom, 0px))' : '0px';
+  contentEl.style.bottom = showNav ? 'calc(50px + env(safe-area-inset-bottom, 0px))' : '0px';
   contentEl.style.overflowY = state.screen === 'landing' ? 'hidden' : 'auto';
   contentEl.innerHTML = html;
   contentEl.scrollTop = 0;
 
   // En el celular real, si en ese instante el navegador calcula el alto de
-  // la pantalla (100dvh) un poquito más chico de lo que en realidad es
-  // (pasa sobre todo justo después de abrir la app o al agregarla a
+  // la pantalla un poquito más chico o más grande de lo que en realidad
+  // es (pasa sobre todo justo después de abrir la app o al agregarla a
   // pantalla de inicio), se alcanza a asomar el fondo de "body" debajo de
-  // la barra de navegación blanca — y como esa barra SÍ es blanca, un
-  // fondo color crema ahí se nota como un escaloncito feo. Mientras se ve
-  // la barra (showNav), pintamos ese fondo del MISMO blanco que la barra,
-  // para que ese pedacito -si aparece- sea invisible en vez de notarse.
-  document.body.style.background = showNav ? '#FFFFFF' : '';
-  document.documentElement.style.background = showNav ? '#FFFFFF' : '';
+  // la barra de navegación. En vez de perseguir el pixel exacto, ese
+  // espacio -si aparece- se pinta de este color a propósito.
+  document.body.style.background = showNav ? '#E9DFC7' : '';
+  document.documentElement.style.background = showNav ? '#E9DFC7' : '';
 
   if (state.screen === 'pago') {
     const diasConPedido = computeDiasConPedido();
