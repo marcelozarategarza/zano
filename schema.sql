@@ -57,3 +57,17 @@ CREATE TABLE IF NOT EXISTS weekly_costs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Estatus de preparación por día dentro de cada pedido semanal (panel de
+-- cocina/trabajadores): {"Lunes": "en_proceso", "Martes": "entregado", ...}.
+-- Si un día no aparece en el JSON, se trata como "pendiente".
+ALTER TABLE weekly_orders ADD COLUMN IF NOT EXISTS day_status JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- Croissants vendidos cada día sin pedido previo (walk-ins que llegan sin
+-- haber pedido con anticipación) — un contador simple por fecha, para que
+-- cocina sepa cuántos preparar en el momento.
+CREATE TABLE IF NOT EXISTS croissant_counts (
+  day DATE PRIMARY KEY,
+  count INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
