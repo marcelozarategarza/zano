@@ -275,6 +275,17 @@ let state = {
   adminCostSaving: false,
   adminCostSaved: false,
 
+  // Panel de cocina/trabajadores (ver /#staff) — contraseña propia
+  // (STAFF_PASSWORD), separada de la de administrador: el personal ve y
+  // mueve pedidos, pero nunca ventas ni ganancias.
+  staffToken: '',
+  staffPassword: '',
+  staffError: '',
+  staffLoading: false,
+  staffData: null,       // { weekStart, rows, croissantHoy }
+  staffTab: 'proximos',  // proximos | proceso | listos | entregados
+  staffCroissantBusy: false,
+
   // Semana (weekStart) a la que pertenece el pedido cacheado en este
   // teléfono para mostrarlo sin conexión — ver saveOfflineSnapshot().
   offlineWeekStart: null
@@ -792,6 +803,96 @@ async function saveAdminCost() {
 }
 
 // ---------------------------------------------------------------------
+// Panel de cocina/trabajadores (ver /#staff) — pedidos de esta semana con
+// su estatus de preparación, y el conteo de croissants vendidos hoy sin
+// pedido previo. Nunca muestra ventas, ganancias ni datos financieros.
+// ---------------------------------------------------------------------
+async function submitStaffLogin() {
+  const passInput = document.getElementById('staff-password');
+  const password = passInput ? passInput.value : '';
+  if (!password) { setState({ staffError: 'Escribe la contraseña.' }); return; }
+  setState({ staffError: '', staffLoading: true });
+  try {
+    const r = await apiFetch('/api/staff-login', { method: 'POST', body: { password } });
+    if (r.ok && r.data && r.data.token) {
+      setState({ staffLoading: false, staffToken: r.data.token, staffPassword: '', screen: 'staff' });
+      loadStaffData();
+    } else {
+      setState({ staffLoading: false, staffError: (r.data && r.data.error) || 'No se pudo entrar. Intenta de nuevo.' });
+    }
+  } catch (e) {
+    setState({ staffLoading: false, staffError: 'No hay conexión con el servidor. Revisa tu internet e intenta de nuevo.' });
+  }
+}
+
+async function loadStaffData() {
+  if (!state.staffToken) return;
+  setState({ staffLoading: true, staffError: '' });
+  try {
+    const r = await apiFetch('/api/staff-data', { headers: { Authorization: 'Bearer ' + state.staffToken } });
+    if (r.ok && r.data) {
+      setState({ staffLoading: false, staffData: r.data });
+    } else if (r.status === 401) {
+      setState({ staffLoading: false, staffToken: '', staffData: null, staffError: 'Tu sesión venció. Vuelve a entrar.', screen: 'staffLogin' });
+    } else {
+      setState({ staffLoading: false, staffError: (r.data && r.data.error) || 'No se pudieron cargar los pedidos.' });
+    }
+  } catch (e) {
+    setState({ staffLoading: false, staffError: 'No hay conexión con el servidor.' });
+  }
+}
+
+function staffLogout() {
+  setState({ screen: 'staffLogin', staffToken: '', staffData: null, staffPassword: '', staffError: '', staffTab: 'proximos' });
+}
+
+// Cambia el estatus de un pedido (de un día en concreto) al instante en
+// pantalla, y lo confirma con el servidor; si falla, recarga desde el
+// servidor para no quedar desincronizado con lo que ve el resto de cocina.
+async function setPedidoStatus(orderId, dia, status) {
+  if (!state.staffData) return;
+  const rows = state.staffData.rows.map((r) => (r.orderId === orderId && r.dia === dia) ? { ...r, status } : r);
+  setState({ staffData: { ...state.staffData, rows } });
+  try {
+    const r = await apiFetch('/api/staff-update-status', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + state.staffToken },
+      body: { orderId, dia, status }
+    });
+    if (!r.ok) loadStaffData();
+  } catch (e) {
+    loadStaffData();
+  }
+}
+
+async function ajustarCroissant(delta) {
+  if (state.staffCroissantBusy || !state.staffData) return;
+  const anterior = state.staffData.croissantHoy;
+  setState({ staffCroissantBusy: true, staffData: { ...state.staffData, croissantHoy: Math.max(0, anterior + delta) } });
+  try {
+    const r = await apiFetch('/api/staff-croissant', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + state.staffToken },
+      body: { delta }
+    });
+    if (r.ok && r.data && typeof r.data.count === 'number') {
+      setState({ staffCroissantBusy: false, staffData: { ...state.staffData, croissantHoy: r.data.count } });
+    } else {
+      setState({ staffCroissantBusy: false, staffData: { ...state.staffData, croissantHoy: anterior } });
+    }
+  } catch (e) {
+    setState({ staffCroissantBusy: false, staffData: { ...state.staffData, croissantHoy: anterior } });
+  }
+}
+
+function computeStaffGroups() {
+  const rows = (state.staffData && state.staffData.rows) || [];
+  const byStatus = { pendiente: [], en_proceso: [], listo: [], entregado: [] };
+  rows.forEach((r) => { (byStatus[r.status] || byStatus.pendiente).push(r); });
+  return byStatus;
+}
+
+// ---------------------------------------------------------------------
 // Cobro real (PayPal, sin backend)
 // ---------------------------------------------------------------------
 function mountPayPalButton(amount) {
@@ -1236,6 +1337,130 @@ function renderReset() {
         <button onclick="reenviarCodigoReset()" style="font-size:12.5px;font-weight:600;color:#2B5D3F;">Reenviar código</button>
         <button onclick="setState({screen:'auth', authMode:'login', forgotError:''})" style="font-size:12.5px;font-weight:600;color:#6B7268;">Volver a iniciar sesión</button>
       </div>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------
+// Render: Panel de cocina/trabajadores (ver /#staff)
+// ---------------------------------------------------------------------
+function renderStaffLogin() {
+  return `
+    <div style="display:flex;flex-direction:column;gap:22px;padding-top:16px;">
+      <div style="display:flex;align-items:center;gap:8px;justify-content:center;">
+        ${icon('leaf', { w: 26, h: 26, stroke: '#2B5D3F', sw: 1.7 })}
+        <span style="font-family:'Work Sans',sans-serif;font-size:22px;font-weight:700;letter-spacing:0.5px;color:#2B5D3F;">ZANO</span>
+      </div>
+
+      <div>
+        <h1 style="margin:0 0 6px 0;font-family:'Fraunces',serif;font-weight:600;font-size:24px;text-align:center;color:#1F2420;">Panel de cocina</h1>
+        <p style="margin:0;font-size:13.5px;line-height:1.5;color:#6B7268;text-align:center;">Para el personal — pedidos del día y conteo de croissants.</p>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Contraseña</label>
+        <input id="staff-password" type="password" placeholder="Contraseña de cocina" onkeydown="if(event.key==='Enter') submitStaffLogin()">
+      </div>
+
+      ${state.staffError ? `
+      <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;">
+        ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
+        <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">${esc(state.staffError)}</span>
+      </div>` : ''}
+
+      <button onclick="submitStaffLogin()" class="pill-btn" ${state.staffLoading ? 'disabled' : ''}>${state.staffLoading ? 'Entrando…' : 'Entrar'}</button>
+
+      <button onclick="setState({screen:'landing', staffError:''})" style="font-size:12.5px;font-weight:600;color:#6B7268;text-align:center;">Volver a ZANO</button>
+    </div>
+  `;
+}
+
+function renderStaffRow(r, opciones) {
+  return `
+    <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px;">
+      <div style="display:flex;flex-direction:column;gap:2px;">
+        <span style="font-size:11.5px;font-weight:700;color:${ACCENT};text-transform:uppercase;letter-spacing:0.3px;">${esc(r.dia)}${r.horario ? ' · ' + esc(r.horario) : ''}</span>
+        <span style="font-size:14.5px;font-weight:700;color:#1F2420;">${esc(r.platillo)}</span>
+        <span style="font-size:12px;color:#6B7268;">${esc(r.cliente)}${r.plantel ? ' · ' + esc(r.plantel) : ''}</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        ${opciones.map((op) => `<button onclick='setPedidoStatus(${JSON.stringify(r.orderId)}, ${JSON.stringify(r.dia)}, ${JSON.stringify(op.status)})' style="flex:1;min-width:120px;padding:10px;border-radius:10px;font-size:12.5px;font-weight:700;background:${op.bg};color:${op.color};">${op.label}</button>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderStaffList(rows, opciones) {
+  if (rows.length === 0) {
+    return `<p style="margin:0;font-size:13px;color:#9AA096;text-align:center;padding:24px 0;">Nada aquí por ahora.</p>`;
+  }
+  return `<div style="display:flex;flex-direction:column;gap:16px;">${DIAS.map((dia) => {
+    const delDia = rows.filter((r) => r.dia === dia);
+    if (delDia.length === 0) return '';
+    return `
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <span style="font-size:12px;font-weight:700;color:#6B7268;text-transform:uppercase;letter-spacing:0.3px;">${esc(dia)}</span>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${delDia.map((r) => renderStaffRow(r, opciones)).join('')}
+        </div>
+      </div>
+    `;
+  }).join('')}</div>`;
+}
+
+function renderStaff() {
+  const data = state.staffData;
+  const groups = computeStaffGroups();
+  const tabDefs = {
+    proximos: { label: 'Próximos', rows: groups.pendiente, opciones: [
+      { status: 'en_proceso', label: 'Empezar a preparar', bg: '#E4ECE1', color: '#2B5D3F' }
+    ] },
+    proceso: { label: 'Preparando', rows: groups.en_proceso, opciones: [
+      { status: 'listo', label: 'Ya está listo', bg: '#E4ECE1', color: '#2B5D3F' },
+      { status: 'pendiente', label: 'Regresar', bg: '#F0ECE0', color: '#6B7268' }
+    ] },
+    listos: { label: 'Listos', rows: groups.listo, opciones: [
+      { status: 'entregado', label: 'Marcar entregado', bg: '#E4ECE1', color: '#2B5D3F' },
+      { status: 'en_proceso', label: 'Regresar', bg: '#F0ECE0', color: '#6B7268' }
+    ] },
+    entregados: { label: 'Entregados', rows: groups.entregado, opciones: [
+      { status: 'listo', label: 'Deshacer', bg: '#F0ECE0', color: '#6B7268' }
+    ] }
+  };
+  const activa = tabDefs[state.staffTab] || tabDefs.proximos;
+
+  return `
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-family:'Fraunces',serif;font-size:20px;font-weight:600;color:#1F2420;">Cocina</div>
+          <div style="font-size:11.5px;color:#6B7268;">${data ? 'Semana del ' + esc(fmtWeekLabel(data.weekStart)) : ''}</div>
+        </div>
+        <button onclick="staffLogout()" style="font-size:12px;font-weight:700;color:#B4472A;padding:8px 12px;border-radius:10px;border:1px solid #EFD7CE;flex-shrink:0;">Salir</button>
+      </div>
+
+      <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:10px;background:#FFF7E9;border-color:#F0DDA6;">
+        <span style="font-size:12px;font-weight:700;color:#8A6A1E;text-transform:uppercase;letter-spacing:0.3px;">Croissants vendidos hoy (sin pedido previo)</span>
+        <div style="display:flex;align-items:center;justify-content:center;gap:22px;">
+          <button onclick="ajustarCroissant(-1)" aria-label="Restar uno" style="width:44px;height:44px;border-radius:999px;background:#FFFFFF;border:1px solid #E7E2D6;font-size:20px;font-weight:700;color:#1F2420;">−</button>
+          <span style="font-family:'Fraunces',serif;font-weight:700;font-size:34px;color:#1F2420;min-width:56px;text-align:center;">${data ? data.croissantHoy : 0}</span>
+          <button onclick="ajustarCroissant(1)" aria-label="Sumar uno" style="width:44px;height:44px;border-radius:999px;background:#2B5D3F;border:none;font-size:20px;font-weight:700;color:#FFFFFF;">+</button>
+        </div>
+      </div>
+
+      <div class="card" style="display:flex;gap:4px;padding:4px;">
+        ${Object.keys(tabDefs).map((key) => `<button onclick='setState({staffTab:${JSON.stringify(key)}})' class="admin-tab ${state.staffTab === key ? 'active' : ''}">${tabDefs[key].label}${tabDefs[key].rows.length ? `<br><span style="font-size:10.5px;font-weight:600;opacity:0.85;">${tabDefs[key].rows.length}</span>` : ''}</button>`).join('')}
+      </div>
+
+      ${state.staffError ? `
+      <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;">
+        ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
+        <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">${esc(state.staffError)}</span>
+      </div>` : ''}
+
+      ${!data ? `
+      <div style="text-align:center;padding:40px 0;color:#9AA096;font-size:13px;">${state.staffLoading ? 'Cargando…' : 'Sin datos todavía.'}</div>
+      ` : renderStaffList(activa.rows, activa.opciones)}
     </div>
   `;
 }
@@ -2126,7 +2351,7 @@ function renderOffline() {
 function render() {
   const contentEl = document.getElementById('content');
   const navEl = document.getElementById('nav');
-  const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth' && state.screen !== 'perfilInfo' && state.screen !== 'forgot' && state.screen !== 'reset' && state.screen !== 'landing' && state.screen !== 'adminLogin' && state.screen !== 'admin' && state.screen !== 'offline';
+  const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth' && state.screen !== 'perfilInfo' && state.screen !== 'forgot' && state.screen !== 'reset' && state.screen !== 'landing' && state.screen !== 'adminLogin' && state.screen !== 'admin' && state.screen !== 'offline' && state.screen !== 'staffLogin' && state.screen !== 'staff';
 
   let html = '';
   if (state.screen === 'landing') html = renderLanding();
@@ -2135,6 +2360,8 @@ function render() {
   else if (state.screen === 'reset') html = renderReset();
   else if (state.screen === 'adminLogin') html = renderAdminLogin();
   else if (state.screen === 'admin') html = renderAdmin();
+  else if (state.screen === 'staffLogin') html = renderStaffLogin();
+  else if (state.screen === 'staff') html = renderStaff();
   else if (state.screen === 'offline') html = renderOffline();
   else if (state.screen === 'inicio') html = renderInicio();
   else if (state.screen === 'menu') html = state.selected ? renderMenuDetail() : renderMenuList();
@@ -2233,9 +2460,12 @@ if (!navigator.onLine) {
 }
 
 // Entra directo al panel de administración cuando abres tudominio.com/#admin
-// (nunca aparece en la navegación normal de la app, es solo para ti).
+// (nunca aparece en la navegación normal de la app, es solo para ti), o al
+// panel de cocina con tudominio.com/#staff (para el personal).
 if (location.hash === '#admin') {
   state = { ...state, screen: 'adminLogin' };
+} else if (location.hash === '#staff') {
+  state = { ...state, screen: 'staffLogin' };
 }
 
 render();
