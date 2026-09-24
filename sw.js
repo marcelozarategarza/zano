@@ -10,11 +10,21 @@
 // admin): esas llamadas siempre van a la red, para no mostrar nunca datos
 // viejos como si fueran reales.
 
-const CACHE_NAME = 'zano-shell-v1';
+// v4: admin.html y staff.html cambiaron (ya no se redirigen solas apenas
+// cargan — antes eso hacía que el ícono se guardara mal, ver esos
+// archivos). Subimos la versión del caché otra vez para que la próxima
+// vez que se abra la app (o cualquiera de los tres íconos) con internet,
+// se descarte de una vez el "cascarón" viejo en vez de esperar a que se
+// actualice solo en segundo plano.
+const CACHE_NAME = 'zano-shell-v4';
 const APP_SHELL = [
   './',
   './index.html',
+  './admin.html',
+  './staff.html',
   './manifest.json',
+  './manifest-admin.json',
+  './manifest-staff.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png'
