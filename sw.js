@@ -10,12 +10,13 @@
 // admin): esas llamadas siempre van a la red, para no mostrar nunca datos
 // viejos como si fueran reales.
 
-// v12: index.html cambió otra vez — la barra de abajo (Inicio/Menú/Mi
-// semana/Perfil) se hizo 1/4 más chica: de 44px a 33px de alto en la
-// parte que sí se puede achicar (los íconos bajaron de 22 a 17px, el
-// texto de 11 a 9px, y el espacio entre ícono y texto de 4 a 2px). La
-// franja reservada por el iPhone para el gesto de inicio no se toca.
-const CACHE_NAME = 'zano-shell-v12';
+// v14: index.html cambió otra vez — la barra de abajo se volvió a
+// achicar 1/4 (de 44px a 33px de parte ajustable; íconos de 22 a 17px,
+// texto de 11 a 9px, espacio de 4 a 2px). Se probó con Playwright
+// simulando la franja de 34px que reserva un iPhone real para el gesto
+// de inicio: los botones quedan justo hasta el borde de esa franja sin
+// invadirla, así que el sistema no confunde el gesto con un toque.
+const CACHE_NAME = 'zano-shell-v14';
 const APP_SHELL = [
   './',
   './index.html',
