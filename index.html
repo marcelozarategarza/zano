@@ -165,6 +165,22 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
     box-sizing: border-box;
   }
+  @media (max-width: 600px) {
+    /* La barra de navegación ya NO cuelga del borde de abajo de #phone
+       (que a veces mide un poco corto o largo de más en el celular real).
+       Aquí, en vez, se fija directo al borde real de LA PANTALLA
+       (position:fixed usa la ventana completa, no #phone) — así siempre
+       toca el fondo de verdad, sin depender de que el cálculo de alto sea
+       exacto. Si queda un huequito entre el contenido y la barra, ahí se
+       alcanza a ver el crema de fondo de #phone/body (que es a propósito
+       el mismo color que toda la app), en vez de un espacio en blanco.
+       Esta regla va DESPUÉS de la de arriba a propósito: como las dos
+       tienen la misma "fuerza" (mismo selector #nav), en CSS gana la que
+       esté más abajo en el archivo — ponerla antes no funcionaba. */
+    #nav {
+      position: fixed;
+    }
+  }
   /* Antes había aquí un "colchón" extra (un bloque blanco de 40px pegado
      debajo de la barra) para tapar una rendija que a veces aparecía por
      un cálculo de alto de pantalla un poquito chico en Safari. Pero ese
@@ -2833,4 +2849,4 @@ window.addEventListener('online', () => {
 });
 </script>
 </body>
-</html>  
+</html>
