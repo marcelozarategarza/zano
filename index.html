@@ -156,7 +156,14 @@
   #nav {
     position: absolute;
     left: 0; right: 0; bottom: 0;
-    height: calc(50px + env(safe-area-inset-bottom, 0px));
+    /* El "33px" es lo que de verdad se puede achicar (íconos + texto +
+       aire) — se redujo otra vez, ahora 1/4 más chico (de 44px a 33px).
+       El "env(safe-area-inset-bottom)" NO se puede quitar ni reducir:
+       ese es el espacio reservado por el propio iPhone para el gesto de
+       inicio (la rayita de abajo del todo) — si lo quitáramos, los
+       botones de la barra quedarían debajo de esa zona y el sistema se
+       comería los toques. */
+    height: calc(33px + env(safe-area-inset-bottom, 0px));
     background: #FFFFFF;
     border-top: 1px solid var(--border);
     display: flex;
@@ -196,9 +203,9 @@
     height: 2px;
     background: #FFFFFF;
   }
-  .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; color: #9AA096; }
+  .nav-item { display: flex; flex-direction: column; align-items: center; gap: 2px; color: #9AA096; }
   .nav-item.active { color: var(--green); }
-  .nav-item span { font-size: 11px; font-weight: 600; }
+  .nav-item span { font-size: 9px; font-weight: 600; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; }
   .row { display: flex; align-items: center; justify-content: space-between; }
   .muted { color: var(--muted); }
@@ -2688,7 +2695,7 @@ function render() {
   else if (state.screen === 'perfil') html = renderPerfil();
   else if (state.screen === 'perfilInfo') html = renderPerfilInfo();
 
-  contentEl.style.bottom = showNav ? 'calc(50px + env(safe-area-inset-bottom, 0px))' : '0px';
+  contentEl.style.bottom = showNav ? 'calc(33px + env(safe-area-inset-bottom, 0px))' : '0px';
   contentEl.style.overflowY = state.screen === 'landing' ? 'hidden' : 'auto';
   contentEl.innerHTML = html;
   contentEl.scrollTop = 0;
@@ -2726,16 +2733,16 @@ function render() {
     navEl.style.display = 'flex';
     navEl.innerHTML = `
       <button class="nav-item ${isInicio ? 'active' : ''}" onclick="setState({screen:'inicio'})">
-        ${icon('home', { w: 22, h: 22, stroke: 'currentColor', sw: 1.7 })}<span>Inicio</span>
+        ${icon('home', { w: 17, h: 17, stroke: 'currentColor', sw: 1.7 })}<span>Inicio</span>
       </button>
       <button class="nav-item ${isMenu ? 'active' : ''}" onclick="setState({screen:'menu', selected:null, pickingDay:null})">
-        ${icon('menu', { w: 22, h: 22, stroke: 'currentColor', sw: 1.7 })}<span>Menú</span>
+        ${icon('menu', { w: 17, h: 17, stroke: 'currentColor', sw: 1.7 })}<span>Menú</span>
       </button>
       <button class="nav-item ${isSemana ? 'active' : ''}" onclick="setState({screen:'semana'})">
-        ${icon('week', { w: 22, h: 22, stroke: 'currentColor', sw: 1.7 })}<span>Mi semana</span>
+        ${icon('week', { w: 17, h: 17, stroke: 'currentColor', sw: 1.7 })}<span>Mi semana</span>
       </button>
       <button class="nav-item ${isPerfil ? 'active' : ''}" onclick="setState({screen:'perfil'})">
-        ${icon('user', { w: 22, h: 22, stroke: 'currentColor', sw: 1.7 })}<span>Perfil</span>
+        ${icon('user', { w: 17, h: 17, stroke: 'currentColor', sw: 1.7 })}<span>Perfil</span>
       </button>
     `;
     navEl.querySelectorAll('.nav-item').forEach((el) => { el.style.color = el.classList.contains('active') ? '#2B5D3F' : '#9AA096'; });
