@@ -813,7 +813,7 @@ async function submitStaffLogin() {
   if (!password) { setState({ staffError: 'Escribe la contraseña.' }); return; }
   setState({ staffError: '', staffLoading: true });
   try {
-    const r = await apiFetch('/api/staff-login', { method: 'POST', body: { password } });
+    const r = await apiFetch('/api/staff?action=login', { method: 'POST', body: { password } });
     if (r.ok && r.data && r.data.token) {
       setState({ staffLoading: false, staffToken: r.data.token, staffPassword: '', screen: 'staff' });
       loadStaffData();
@@ -829,7 +829,7 @@ async function loadStaffData() {
   if (!state.staffToken) return;
   setState({ staffLoading: true, staffError: '' });
   try {
-    const r = await apiFetch('/api/staff-data', { headers: { Authorization: 'Bearer ' + state.staffToken } });
+    const r = await apiFetch('/api/staff?action=data', { headers: { Authorization: 'Bearer ' + state.staffToken } });
     if (r.ok && r.data) {
       setState({ staffLoading: false, staffData: r.data });
     } else if (r.status === 401) {
@@ -854,7 +854,7 @@ async function setPedidoStatus(orderId, dia, status) {
   const rows = state.staffData.rows.map((r) => (r.orderId === orderId && r.dia === dia) ? { ...r, status } : r);
   setState({ staffData: { ...state.staffData, rows } });
   try {
-    const r = await apiFetch('/api/staff-update-status', {
+    const r = await apiFetch('/api/staff?action=update-status', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + state.staffToken },
       body: { orderId, dia, status }
@@ -870,7 +870,7 @@ async function ajustarCroissant(delta) {
   const anterior = state.staffData.croissantHoy;
   setState({ staffCroissantBusy: true, staffData: { ...state.staffData, croissantHoy: Math.max(0, anterior + delta) } });
   try {
-    const r = await apiFetch('/api/staff-croissant', {
+    const r = await apiFetch('/api/staff?action=croissant', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + state.staffToken },
       body: { delta }
