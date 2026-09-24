@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#FAF8F3">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
+<!--
+  A diferencia de index.html (donde el manifest se cambia con JavaScript
+  según el #hash de la URL — algo que el iPhone no siempre respeta al
+  usar "Agregar a pantalla de inicio"), esta página tiene su PROPIO
+  manifest escrito aquí mismo, tal cual, desde el primer momento. Por eso
+  es la página que hay que abrir para agregar el ícono de Admin, en vez
+  de abrir zano-five.vercel.app/#admin directamente.
+-->
+<link rel="manifest" href="/manifest-admin.json">
+<meta http-equiv="refresh" content="0; url=/#admin">
+<title>ZANO Admin</title>
+<style>html, body { margin: 0; height: 100%; background: #FAF8F3; }</style>
+<script>location.replace('/#admin');</script>
+</head>
+<body></body>
+</html>
