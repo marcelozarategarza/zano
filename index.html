@@ -157,12 +157,17 @@
     position: absolute;
     left: 0; right: 0; bottom: 0;
     /* El "33px" es lo que de verdad se puede achicar (íconos + texto +
-       aire) — se redujo otra vez, ahora 1/4 más chico (de 44px a 33px).
-       El "env(safe-area-inset-bottom)" NO se puede quitar ni reducir:
-       ese es el espacio reservado por el propio iPhone para el gesto de
-       inicio (la rayita de abajo del todo) — si lo quitáramos, los
-       botones de la barra quedarían debajo de esa zona y el sistema se
-       comería los toques. */
+       aire) — 1/4 más chico que 44px. El "env(safe-area-inset-bottom)"
+       NO se toca: ese es el espacio reservado por el propio iPhone para
+       el gesto de inicio (la rayita de abajo del todo). Reducir SOLO la
+       parte de arriba (33px) es seguro porque los botones siguen
+       empujados hacia arriba con padding-bottom por esa misma franja —
+       nunca quedan dentro de la zona del gesto, así que el sistema no
+       se confunde. Ojo: en la Mac esa franja mide 0px (las Mac no
+       tienen ese gesto), por eso ahí la barra se ve más delgada que en
+       un iPhone real con el mismo código — no es un bug, es espacio
+       real que iOS reserva en todos los iPhone sin botón de inicio
+       (igual que Instagram, Uber, etc.). */
     height: calc(33px + env(safe-area-inset-bottom, 0px));
     background: #FFFFFF;
     border-top: 1px solid var(--border);
