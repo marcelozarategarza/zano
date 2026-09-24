@@ -10,16 +10,13 @@
 // admin): esas llamadas siempre van a la red, para no mostrar nunca datos
 // viejos como si fueran reales.
 
-// v15: index.html cambió otra vez — se agregó "background-clip:
-// content-box" a #nav. Antes, el blanco de la barra pintaba TODO su
-// alto, incluyendo la franja de abajo que reserva un iPhone real para
-// el gesto de inicio (esa franja mide 0px en una Mac) — por eso en un
-// iPhone real la barra blanca se veía más gruesa que en la Mac, aunque
-// el código fuera idéntico. Ahora el blanco solo pinta los 33px de
-// arriba (donde están los íconos); la franja del gesto se ve del color
-// crema del fondo de la app. Resultado: la barra blanca mide EXACTO lo
-// mismo en la Mac que en el iPhone.
-const CACHE_NAME = 'zano-shell-v15';
+// v17: index.html cambió otra vez — la franja reservada para el gesto
+// de inicio del iPhone se redujo 1/4 (se usa al 75%) A PROPÓSITO, pedido
+// explícitamente aunque se avisó del riesgo: con Playwright se
+// comprobó que los íconos quedan unos 8-9px dentro de la zona real del
+// gesto, así que un toque muy cerca del borde de abajo podría a veces
+// confundirse con el gesto del sistema en vez de registrar el clic.
+const CACHE_NAME = 'zano-shell-v17';
 const APP_SHELL = [
   './',
   './index.html',
