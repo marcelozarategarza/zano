@@ -10,13 +10,11 @@
 // admin): esas llamadas siempre van a la red, para no mostrar nunca datos
 // viejos como si fueran reales.
 
-// v7: index.html cambió otra vez — se encontró y quitó un límite viejo de
-// altura ("max-height: 100dvh") que le ganaba al alto real que calcula el
-// JavaScript, y dejaba un hueco en blanco pegado a la barra de abajo
-// (pareciendo que la barra en sí era más gruesa). Subimos el número para
-// que este cambio se note de inmediato en vez de esperar a la siguiente
-// visita.
-const CACHE_NAME = 'zano-shell-v7';
+// v8: index.html cambió otra vez — la barra de abajo se hizo más chica
+// (50px) y, en vez de perseguir el pixel exacto para que nunca se vea
+// ningún hueco, ese espacio (si llega a aparecer) ahora se pinta a
+// propósito de #E9DFC7. Subimos el número para que se note de inmediato.
+const CACHE_NAME = 'zano-shell-v8';
 const APP_SHELL = [
   './',
   './index.html',
