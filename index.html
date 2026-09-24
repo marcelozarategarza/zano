@@ -157,19 +157,22 @@
     position: absolute;
     left: 0; right: 0; bottom: 0;
     /* El "33px" es lo que de verdad se puede achicar (íconos + texto +
-       aire) — 1/4 más chico que 44px. El "env(safe-area-inset-bottom)"
-       NO se toca: ese es el espacio reservado por el propio iPhone para
-       el gesto de inicio (la rayita de abajo del todo). Reducir SOLO la
-       parte de arriba (33px) es seguro porque los botones siguen
-       empujados hacia arriba con padding-bottom por esa misma franja —
-       nunca quedan dentro de la zona del gesto, así que el sistema no
-       se confunde. Ojo: en la Mac esa franja mide 0px (las Mac no
-       tienen ese gesto), por eso ahí la barra se ve más delgada que en
-       un iPhone real con el mismo código — no es un bug, es espacio
-       real que iOS reserva en todos los iPhone sin botón de inicio
-       (igual que Instagram, Uber, etc.). */
+       aire). El "env(safe-area-inset-bottom)" NO se toca: ese es el
+       espacio reservado por el propio iPhone para el gesto de inicio (la
+       rayita de abajo del todo).
+       "background-clip: content-box" es la parte nueva: pinta de blanco
+       SOLO los 33px de arriba (donde están los íconos), y dentro de la
+       franja del gesto (los 34px de abajo en un iPhone real) deja ver el
+       color crema del fondo de #phone, que está atrás. Resultado: la
+       barra blanca que de verdad ves y tocas mide EXACTAMENTE los mismos
+       33px en la Mac que en el iPhone — ahí ya no hay diferencia. Nada
+       más cambia el colorcito de esa rayita de abajo del todo (de blanco
+       a crema), pero esa franja nunca tuvo botones ni texto, así que no
+       se pierde nada de funcionalidad. En la Mac no se nota ningún
+       cambio porque ahí esa franja mide 0px. */
     height: calc(33px + env(safe-area-inset-bottom, 0px));
     background: #FFFFFF;
+    background-clip: content-box;
     border-top: 1px solid var(--border);
     display: flex;
     align-items: center;
