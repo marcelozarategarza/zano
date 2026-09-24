@@ -76,7 +76,11 @@
     touch-action: pan-y;
   }
   @media (max-width: 600px) {
-    body { padding: 0; }
+    /* En el teléfono real, body ya no debe verse nunca (el #phone ocupa
+       toda la pantalla) — pero por si algún navegador deja un pixelito
+       sin cubrir en la zona del home indicator, que sea del mismo color
+       que el fondo de la app y no se note como una línea aparte. */
+    body { padding: 0; background: var(--bg); }
     #phone {
       width: 100vw;
       height: 100dvh;
@@ -295,6 +299,8 @@ function setState(patch) {
   state = { ...state, ...patch };
   saveSession();
   saveOfflineSnapshot();
+  saveAdminSession();
+  saveStaffSession();
   render();
 }
 
@@ -478,6 +484,32 @@ async function apiFetch(path, options) {
 // ---------------------------------------------------------------------
 const SESSION_KEY = 'zano_session_v1';
 const OFFLINE_CACHE_KEY = 'zano_offline_cache_v1';
+const ADMIN_SESSION_KEY = 'zano_admin_session_v1';
+const STAFF_SESSION_KEY = 'zano_staff_session_v1';
+
+// Sesión de administrador y de cocina: se guardan aparte de la del cliente
+// para que, al volver a abrir la app en ese mismo dispositivo, regrese
+// directo a ese panel en vez de mandarte a la pantalla de login de cliente
+// (que es lo que pasaba antes). "Salir" en cualquiera de los dos paneles
+// borra su sesión guardada (ver setState, que llama a estas funciones).
+function saveAdminSession() {
+  try {
+    if (state.adminToken) localStorage.setItem(ADMIN_SESSION_KEY, state.adminToken);
+    else localStorage.removeItem(ADMIN_SESSION_KEY);
+  } catch (e) { /* localStorage no disponible */ }
+}
+function loadAdminSession() {
+  try { return localStorage.getItem(ADMIN_SESSION_KEY) || ''; } catch (e) { return ''; }
+}
+function saveStaffSession() {
+  try {
+    if (state.staffToken) localStorage.setItem(STAFF_SESSION_KEY, state.staffToken);
+    else localStorage.removeItem(STAFF_SESSION_KEY);
+  } catch (e) { /* localStorage no disponible */ }
+}
+function loadStaffSession() {
+  try { return localStorage.getItem(STAFF_SESSION_KEY) || ''; } catch (e) { return ''; }
+}
 
 function saveSession() {
   try {
@@ -2459,9 +2491,23 @@ if (!navigator.onLine) {
   // conexión: se queda en la pantalla de inicio (landing) normal.
 }
 
+// Si este dispositivo ya había entrado antes al panel de administración o
+// al de cocina, regresa directo ahí (en vez de la pantalla de login de
+// cliente) — cada quien mantiene su propia sesión guardada por separado.
+const savedAdminToken = loadAdminSession();
+const savedStaffToken = loadStaffSession();
+if (savedStaffToken) {
+  state = { ...state, screen: 'staff', staffToken: savedStaffToken };
+}
+if (savedAdminToken) {
+  state = { ...state, screen: 'admin', adminToken: savedAdminToken };
+}
+
 // Entra directo al panel de administración cuando abres tudominio.com/#admin
 // (nunca aparece en la navegación normal de la app, es solo para ti), o al
-// panel de cocina con tudominio.com/#staff (para el personal).
+// panel de cocina con tudominio.com/#staff (para el personal). Esto manda
+// sobre lo de arriba: si escribes la dirección a propósito, así te muestra
+// el login de ese panel aunque ya hubiera una sesión guardada de otro tipo.
 if (location.hash === '#admin') {
   state = { ...state, screen: 'adminLogin' };
 } else if (location.hash === '#staff') {
@@ -2469,6 +2515,11 @@ if (location.hash === '#admin') {
 }
 
 render();
+
+// Si arrancamos ya con sesión de administrador o de cocina, carga los
+// datos de una vez (igual que pasa justo después de meter la contraseña).
+if (state.screen === 'admin' && state.adminToken) loadAdminData();
+if (state.screen === 'staff' && state.staffToken) loadStaffData();
 
 // Si la app se quedó en la pantalla de "Sin conexión" y vuelve la señal,
 // regresa sola a la app normal (inicio si ya había sesión, o landing).
