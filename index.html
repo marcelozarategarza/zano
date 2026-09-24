@@ -132,7 +132,13 @@
     overscroll-behavior: contain;
     touch-action: pan-y;
     box-sizing: border-box;
-    padding: 28px 24px calc(24px + env(safe-area-inset-bottom, 0px));
+    /* El "env(safe-area-inset-top)" es indispensable aquí: como la barra de
+       estado del iPhone se pidió "black-translucent" (para que se vea
+       bonita, transparente sobre la app), el contenido se dibuja POR
+       DEBAJO de ella por defecto — y si no le dejamos ese espacio propio,
+       el reloj/batería tapan el texto de arriba, sobre todo abierta como
+       ícono instalado (modo standalone), que es donde más se nota. */
+    padding: calc(28px + env(safe-area-inset-top, 0px)) 24px calc(24px + env(safe-area-inset-bottom, 0px));
     display: flex;
     flex-direction: column;
     gap: 18px;
@@ -216,6 +222,35 @@
    Reconstrucción como app web independiente (sin dependencias de build),
    lista para hospedar en GitHub Pages / Vercel / Netlify tal cual.
    ========================================================================= */
+
+// ---------------------------------------------------------------------
+// Alto real de la pantalla (arregla el espacio grande que queda abajo
+// del nav en iOS cuando la app ya está instalada / agregada a inicio).
+//
+// El CSS "100dvh" debería bastar, pero en modo standalone de iOS a veces
+// no coincide con el alto que en realidad ve el usuario (sobre todo justo
+// al abrir la app) y deja un hueco del color de fondo debajo de todo. Acá
+// medimos el alto real con JavaScript (que si es confiable, viene de
+// window.innerHeight / visualViewport) y se lo damos directo a #phone en
+// vez de confiar solo en el CSS.
+// ---------------------------------------------------------------------
+function ajustarAltoReal() {
+  const phone = document.getElementById('phone');
+  if (!phone) return;
+  const esMovil = window.matchMedia('(max-width: 600px)').matches;
+  if (!esMovil) { phone.style.height = ''; return; }
+  const alto = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+  phone.style.height = alto + 'px';
+}
+window.addEventListener('resize', ajustarAltoReal);
+window.addEventListener('orientationchange', () => setTimeout(ajustarAltoReal, 300));
+window.addEventListener('pageshow', ajustarAltoReal);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', ajustarAltoReal);
+ajustarAltoReal();
+// En modo standalone el alto correcto a veces se estabiliza un instante
+// después de abrir la app — reintentamos una vez más por si acaso.
+setTimeout(ajustarAltoReal, 300);
+setTimeout(ajustarAltoReal, 1000);
 
 const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
 const HORARIOS = ['10:00 am', '10:30 am', '11:00 am', '11:30 am', '12:00 pm', '12:30 pm', '1:00 pm', '1:30 pm', '2:00 pm', '2:30 pm', '3:00 pm', '3:30 pm', '4:00 pm'];
@@ -2772,4 +2807,5 @@ window.addEventListener('online', () => {
 });
 </script>
 </body>
+</html>
 </html>
