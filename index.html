@@ -149,15 +149,19 @@
     padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     box-sizing: border-box;
   }
-  /* "Colchón" extra: por si el celular calcula el alto de la pantalla un
-     poquito más chico de lo real justo en ese momento (pasa en Safari),
-     esto extiende el mismo blanco de la barra un poco más abajo de su
-     propia caja, para que nunca se alcance a ver una rendija del fondo. */
+  /* Antes había aquí un "colchón" extra (un bloque blanco de 40px pegado
+     debajo de la barra) para tapar una rendija que a veces aparecía por
+     un cálculo de alto de pantalla un poquito chico en Safari. Pero ese
+     bloque de 40px se veía y hacía que la barra completa se sintiera muy
+     gruesa. Ese mismo problema ya se resuelve abajo en JS (pintamos el
+     fondo de toda la página del mismo blanco de la barra mientras se ve
+     la barra), así que aquí solo dejamos un colchón mínimo, casi
+     invisible, nada más por seguridad. */
   #nav::after {
     content: '';
     position: absolute;
     left: 0; right: 0; top: 100%;
-    height: 40px;
+    height: 2px;
     background: #FFFFFF;
   }
   .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; color: #9AA096; }
