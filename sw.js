@@ -10,10 +10,12 @@
 // admin): esas llamadas siempre van a la red, para no mostrar nunca datos
 // viejos como si fueran reales.
 
-// v10: index.html cambió otra vez — el espacio de respaldo debajo de la
-// barra ahora es el crema de fondo de toda la app (#FAF8F3, var(--bg)),
-// como una franja propia debajo de la barra blanca.
-const CACHE_NAME = 'zano-shell-v10';
+// v11: index.html cambió otra vez — la barra de navegación ya no cuelga
+// del borde de #phone (que a veces medía corto o largo de más); ahora se
+// fija directo al borde real de la pantalla, así que siempre lo toca sin
+// falta. Si queda un huequito, ahora aparece ARRIBA de la barra (color
+// crema), no abajo.
+const CACHE_NAME = 'zano-shell-v11';
 const APP_SHELL = [
   './',
   './index.html',
