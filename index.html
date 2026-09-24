@@ -2723,9 +2723,26 @@ function render() {
 // con internet, para que el navegador pueda volver a ABRIRLA sin señal
 // (ver sw.js) — sin esto, sin conexión no se llega ni a ejecutar el JS
 // que muestra el pedido guardado.
+//
+// "updateViaCache: 'none'" es importante: sin esto, el propio navegador
+// puede guardar una copia vieja de sw.js y nunca darse cuenta de que
+// cambió (aunque cambiemos el número de versión adentro), así que la app
+// se queda viendo diseños viejos para siempre aunque subamos código
+// nuevo. Y en cuanto el navegador SÍ detecta una versión nueva de sw.js y
+// la activa, recargamos la página una sola vez automáticamente — así el
+// usuario ve el cambio de una vez, sin tener que cerrar y volver a abrir
+// la app a mano.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => { /* navegadores viejos o sin soporte: la app sigue funcionando normal con internet */ });
+    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+      .then((reg) => reg.update())
+      .catch(() => { /* navegadores viejos o sin soporte: la app sigue funcionando normal con internet */ });
+  });
+  let yaSeRecargoPorActualizacion = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (yaSeRecargoPorActualizacion) return;
+    yaSeRecargoPorActualizacion = true;
+    window.location.reload();
   });
 }
 
@@ -2807,4 +2824,5 @@ window.addEventListener('online', () => {
 });
 </script>
 </body>
+</html>
 </html>
