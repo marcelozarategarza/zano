@@ -149,6 +149,17 @@
     padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     box-sizing: border-box;
   }
+  /* "Colchón" extra: por si el celular calcula el alto de la pantalla un
+     poquito más chico de lo real justo en ese momento (pasa en Safari),
+     esto extiende el mismo blanco de la barra un poco más abajo de su
+     propia caja, para que nunca se alcance a ver una rendija del fondo. */
+  #nav::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; top: 100%;
+    height: 40px;
+    background: #FFFFFF;
+  }
   .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; color: #9AA096; }
   .nav-item.active { color: var(--green); }
   .nav-item span { font-size: 11px; font-weight: 600; }
@@ -2611,6 +2622,17 @@ function render() {
   contentEl.style.overflowY = state.screen === 'landing' ? 'hidden' : 'auto';
   contentEl.innerHTML = html;
   contentEl.scrollTop = 0;
+
+  // En el celular real, si en ese instante el navegador calcula el alto de
+  // la pantalla (100dvh) un poquito más chico de lo que en realidad es
+  // (pasa sobre todo justo después de abrir la app o al agregarla a
+  // pantalla de inicio), se alcanza a asomar el fondo de "body" debajo de
+  // la barra de navegación blanca — y como esa barra SÍ es blanca, un
+  // fondo color crema ahí se nota como un escaloncito feo. Mientras se ve
+  // la barra (showNav), pintamos ese fondo del MISMO blanco que la barra,
+  // para que ese pedacito -si aparece- sea invisible en vez de notarse.
+  document.body.style.background = showNav ? '#FFFFFF' : '';
+  document.documentElement.style.background = showNav ? '#FFFFFF' : '';
 
   if (state.screen === 'pago') {
     const diasConPedido = computeDiasConPedido();
