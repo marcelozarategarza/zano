@@ -8,6 +8,7 @@
 //   POST /api/staff?action=croissant      { delta }
 const { getPool } = require('./_db');
 const { signStaffToken, getStaffFromRequest } = require('./_auth');
+const { getClientIp, checkThrottle, registerFail, registerSuccess } = require('./_throttle');
 
 const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
 const ESTATUS_VALIDOS = ['pendiente', 'en_proceso', 'listo', 'entregado'];
@@ -33,7 +34,23 @@ async function handleLogin(req, res) {
     const { password } = req.body || {};
     const real = process.env.STAFF_PASSWORD;
     if (!real) { res.status(500).json({ error: 'Falta configurar STAFF_PASSWORD en el servidor.' }); return; }
-    if (!password || password !== real) { res.status(401).json({ error: 'Contraseña incorrecta.' }); return; }
+
+    // Igual que en admin-login: una sola contraseña compartida, así que el
+    // límite de intentos se cuenta por IP en vez de por cuenta.
+    const pool = getPool();
+    const ip = getClientIp(req);
+    const throttle = await checkThrottle(pool, 'staff', ip);
+    if (throttle.blocked) {
+      res.status(429).json({ error: `Demasiados intentos fallidos. Espera ${throttle.minutosRestantes} minuto(s) e intenta de nuevo.` });
+      return;
+    }
+
+    if (!password || password !== real) {
+      await registerFail(pool, 'staff', ip);
+      res.status(401).json({ error: 'Contraseña incorrecta.' });
+      return;
+    }
+    await registerSuccess(pool, 'staff', ip);
     const token = signStaffToken();
     res.status(200).json({ token });
   } catch (err) {
