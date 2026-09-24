@@ -15,12 +15,64 @@
   manifest escrito aquí mismo, tal cual, desde el primer momento. Por eso
   es la página que hay que abrir para agregar el ícono de Admin, en vez
   de abrir zano-five.vercel.app/#admin directamente.
+
+  IMPORTANTE: a diferencia de la versión anterior, esta página YA NO se
+  redirige sola de inmediato. Antes se redirigía apenas cargaba (con
+  meta-refresh + location.replace), así que para cuando el usuario
+  alcanzaba a tocar "Compartir" y "Agregar a inicio", Safari ya estaba
+  parado en "/" (la raíz) y no en "/admin.html" — por eso el ícono se
+  guardaba apuntando a la app de clientes en vez de a la de Admin. Ahora
+  la redirección solo ocurre cuando la página se abre YA INSTALADA como
+  ícono en la pantalla de inicio (modo standalone). Mientras el usuario
+  la ve dentro de Safari (para agregarla), se queda quieta en esta misma
+  URL para que el ícono se guarde correctamente.
 -->
 <link rel="manifest" href="/manifest-admin.json">
-<meta http-equiv="refresh" content="0; url=/#admin">
 <title>ZANO Admin</title>
-<style>html, body { margin: 0; height: 100%; background: #FAF8F3; }</style>
-<script>location.replace('/#admin');</script>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #FAF8F3;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: #2B2B26;
+  }
+  .wrap {
+    box-sizing: border-box;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 32px 28px;
+    gap: 10px;
+  }
+  h1 { font-size: 19px; margin: 0 0 4px; }
+  p { font-size: 14.5px; line-height: 1.5; color: #6B6B60; margin: 0; max-width: 320px; }
+  .badge {
+    width: 56px; height: 56px; border-radius: 14px;
+    background: #2E5339; color: #fff; display: flex; align-items: center;
+    justify-content: center; font-weight: 700; font-size: 20px; margin-bottom: 6px;
+  }
+</style>
+<script>
+  // Solo redirigimos si esta página ya se abrió como ícono instalado
+  // (modo standalone). Si el usuario apenas la está viendo en una
+  // pestaña normal de Safari (por ejemplo para agregarla a inicio),
+  // NO la movemos de aquí.
+  var esStandalone = (window.navigator.standalone === true) ||
+    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  if (esStandalone) {
+    location.replace('/#admin');
+  }
+</script>
 </head>
-<body></body>
+<body>
+  <div class="wrap">
+    <div class="badge">Z</div>
+    <h1>Panel de Admin — ZANO</h1>
+    <p>Para instalar el ícono, toca el botón de Compartir de Safari y luego "Agregar a pantalla de inicio" desde esta misma página.</p>
+  </div>
+</body>
 </html>
