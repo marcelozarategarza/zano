@@ -2681,10 +2681,12 @@ function render() {
   // la pantalla un poquito más chico o más grande de lo que en realidad
   // es (pasa sobre todo justo después de abrir la app o al agregarla a
   // pantalla de inicio), se alcanza a asomar el fondo de "body" debajo de
-  // la barra de navegación. En vez de perseguir el pixel exacto, ese
-  // espacio -si aparece- se pinta de este color a propósito.
-  document.body.style.background = showNav ? '#E9DFC7' : '';
-  document.documentElement.style.background = showNav ? '#E9DFC7' : '';
+  // la barra de navegación. Para que no se vea como una segunda barra
+  // pegada (de otro color) sino como parte de la misma barra blanca de
+  // arriba, ese espacio -si aparece- se pinta del mismo blanco que la
+  // barra.
+  document.body.style.background = showNav ? '#FFFFFF' : '';
+  document.documentElement.style.background = showNav ? '#FFFFFF' : '';
 
   if (state.screen === 'pago') {
     const diasConPedido = computeDiasConPedido();
