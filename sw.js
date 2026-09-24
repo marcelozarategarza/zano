@@ -10,15 +10,14 @@
 // admin): esas llamadas siempre van a la red, para no mostrar nunca datos
 // viejos como si fueran reales.
 
-// v5: index.html cambió otra vez (barra de abajo más delgada, ajuste del
-// alto real de pantalla). Como esta página solo actualiza su copia
-// guardada EN SEGUNDO PLANO (para la siguiente vez que se abra) y no en el
-// momento, cualquier cambio en index.html que no venga acompañado de un
-// cambio aquí en sw.js puede tardarse en notarse — o, en un ícono ya
-// instalado que casi nunca se cierra del todo, notarse hasta mucho
-// después. Subir este número fuerza que, la próxima vez que haya
-// internet, se descarte de una vez el "cascarón" viejo en vez de esperar.
-const CACHE_NAME = 'zano-shell-v5';
+// v6: index.html ahora registra este archivo con updateViaCache:'none' y
+// se recarga solo en cuanto detecta una versión nueva de este
+// service worker — antes el navegador podía guardar en caché el propio
+// sw.js y nunca enterarse de que había una versión nueva, así que los
+// cambios de diseño (como la barra de abajo más delgada) se podían quedar
+// sin verse por mucho tiempo en un ícono ya instalado. Subimos el número
+// una vez más para que este arreglo mismo se active.
+const CACHE_NAME = 'zano-shell-v6';
 const APP_SHELL = [
   './',
   './index.html',
