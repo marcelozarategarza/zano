@@ -1420,6 +1420,11 @@ function renderLanding() {
           ${icon('check', { w: 13, h: 13, stroke: '#9AA096', sw: 2.2 })}
           <span style="font-size:11px;color:#9AA096;">Pagos seguros con PayPal</span>
         </div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:14px;padding-top:6px;">
+          <span onclick="setState({screen:'staffLogin'})" style="font-size:11px;color:#B7BCAF;text-decoration:underline;">Cocina</span>
+          <span style="width:3px;height:3px;border-radius:50%;background:#D8D4C6;"></span>
+          <span onclick="setState({screen:'adminLogin'})" style="font-size:11px;color:#B7BCAF;text-decoration:underline;">Admin</span>
+        </div>
       </div>
     </div>
   `;
