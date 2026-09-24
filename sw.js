@@ -10,11 +10,10 @@
 // admin): esas llamadas siempre van a la red, para no mostrar nunca datos
 // viejos como si fueran reales.
 
-// v9: index.html cambió otra vez — el espacio de respaldo debajo de la
-// barra ya no es beige (#E9DFC7): ahora es el mismo blanco puro de la
-// barra, pegado sin ninguna línea ni color distinto en medio, para que se
-// vea como una sola barra continua en vez de dos partes separadas.
-const CACHE_NAME = 'zano-shell-v9';
+// v10: index.html cambió otra vez — el espacio de respaldo debajo de la
+// barra ahora es el crema de fondo de toda la app (#FAF8F3, var(--bg)),
+// como una franja propia debajo de la barra blanca.
+const CACHE_NAME = 'zano-shell-v10';
 const APP_SHELL = [
   './',
   './index.html',
