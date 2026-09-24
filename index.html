@@ -140,13 +140,13 @@
   #nav {
     position: absolute;
     left: 0; right: 0; bottom: 0;
-    height: calc(84px + env(safe-area-inset-bottom, 0px));
+    height: calc(60px + env(safe-area-inset-bottom, 0px));
     background: #FFFFFF;
     border-top: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: space-around;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     box-sizing: border-box;
   }
   /* Antes había aquí un "colchón" extra (un bloque blanco de 40px pegado
@@ -2627,7 +2627,7 @@ function render() {
   else if (state.screen === 'perfil') html = renderPerfil();
   else if (state.screen === 'perfilInfo') html = renderPerfilInfo();
 
-  contentEl.style.bottom = showNav ? 'calc(84px + env(safe-area-inset-bottom, 0px))' : '0px';
+  contentEl.style.bottom = showNav ? 'calc(60px + env(safe-area-inset-bottom, 0px))' : '0px';
   contentEl.style.overflowY = state.screen === 'landing' ? 'hidden' : 'auto';
   contentEl.innerHTML = html;
   contentEl.scrollTop = 0;
