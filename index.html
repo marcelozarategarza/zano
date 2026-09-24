@@ -119,7 +119,17 @@
     #phone {
       width: 100vw;
       height: 100dvh;
-      max-height: 100dvh;
+      /* "max-height: none" cancela a propósito el "max-height: 100dvh" que
+         #phone trae desde la regla de escritorio (más arriba) — sin
+         repetirlo aquí, ese límite viejo seguía aplicando igual. Y era
+         justo ese límite el que le ganaba al alto real en píxeles que le
+         da el JavaScript (ajustarAltoReal, más abajo) — en el iPhone real,
+         sobre todo agregado a pantalla de inicio, ese alto real puede ser
+         MÁS GRANDE que lo que "100dvh" calcula. Si dejábamos el límite
+         viejo, #phone se quedaba más chico de lo que debía y dejaba un
+         hueco en blanco abajo pegado a la barra de navegación, como si la
+         barra se viera "más gruesa" de lo que en realidad es. */
+      max-height: none;
       border-radius: 0;
       box-shadow: none;
     }
@@ -2824,5 +2834,4 @@ window.addEventListener('online', () => {
 });
 </script>
 </body>
-</html>
 </html>
