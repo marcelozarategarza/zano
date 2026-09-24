@@ -10,11 +10,11 @@
 // admin): esas llamadas siempre van a la red, para no mostrar nunca datos
 // viejos como si fueran reales.
 
-// v8: index.html cambió otra vez — la barra de abajo se hizo más chica
-// (50px) y, en vez de perseguir el pixel exacto para que nunca se vea
-// ningún hueco, ese espacio (si llega a aparecer) ahora se pinta a
-// propósito de #E9DFC7. Subimos el número para que se note de inmediato.
-const CACHE_NAME = 'zano-shell-v8';
+// v9: index.html cambió otra vez — el espacio de respaldo debajo de la
+// barra ya no es beige (#E9DFC7): ahora es el mismo blanco puro de la
+// barra, pegado sin ninguna línea ni color distinto en medio, para que se
+// vea como una sola barra continua en vez de dos partes separadas.
+const CACHE_NAME = 'zano-shell-v9';
 const APP_SHELL = [
   './',
   './index.html',
