@@ -10,13 +10,15 @@
 // admin): esas llamadas siempre van a la red, para no mostrar nunca datos
 // viejos como si fueran reales.
 
-// v4: admin.html y staff.html cambiaron (ya no se redirigen solas apenas
-// cargan — antes eso hacía que el ícono se guardara mal, ver esos
-// archivos). Subimos la versión del caché otra vez para que la próxima
-// vez que se abra la app (o cualquiera de los tres íconos) con internet,
-// se descarte de una vez el "cascarón" viejo en vez de esperar a que se
-// actualice solo en segundo plano.
-const CACHE_NAME = 'zano-shell-v4';
+// v5: index.html cambió otra vez (barra de abajo más delgada, ajuste del
+// alto real de pantalla). Como esta página solo actualiza su copia
+// guardada EN SEGUNDO PLANO (para la siguiente vez que se abra) y no en el
+// momento, cualquier cambio en index.html que no venga acompañado de un
+// cambio aquí en sw.js puede tardarse en notarse — o, en un ícono ya
+// instalado que casi nunca se cierra del todo, notarse hasta mucho
+// después. Subir este número fuerza que, la próxima vez que haya
+// internet, se descarte de una vez el "cascarón" viejo en vez de esperar.
+const CACHE_NAME = 'zano-shell-v5';
 const APP_SHELL = [
   './',
   './index.html',
