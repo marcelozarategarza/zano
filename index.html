@@ -34,6 +34,12 @@
   que nadie tenga que confirmar nada.
 -->
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<!--
+  Solo para el panel de administración: arma el archivo de Excel que se
+  descarga con el botón "Exportar a Excel" (ver exportarExcelAdmin() más
+  abajo). No se usa en ninguna otra pantalla de la app.
+-->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root {
     --bg: #FAF8F3;
@@ -256,6 +262,9 @@ let state = {
   ayudaAutomatico: false,
   ayudaUltimoMensaje: '',
   historialTab: 'proximos',
+  orderHistory: [],         // tus pedidos YA PAGADOS de semanas anteriores (el más reciente primero)
+  orderHistoryLoading: false,
+  orderHistoryLoaded: false, // ya se intentó traer el historial en esta sesión (haya salido bien o no)
   profileInfoError: '',
   authNotice: '',
   forgotEmail: '',
@@ -352,7 +361,8 @@ function icon(name, extra) {
     card: '<rect x="1" y="1" width="24" height="16" rx="2.5"/><path d="M1 6.5h24"/>',
     faceid: '<path d="M10 22V14a4 4 0 0 1 4-4h8"/><path d="M42 10h8a4 4 0 0 1 4 4v8"/><path d="M10 42v8a4 4 0 0 0 4 4h8"/><path d="M54 42v8a4 4 0 0 1-4 4h-8"/><circle cx="24" cy="28" r="1.6" fill="#1F2420" stroke="none"/><circle cx="40" cy="28" r="1.6" fill="#1F2420" stroke="none"/><path d="M32 26v8"/><path d="M24 40c3 3 13 3 16 0"/>',
     photo: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5-9 9"/>',
-    wifiOff: '<path d="M1 1l22 22"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><path d="M12 20h.01"/>'
+    wifiOff: '<path d="M1 1l22 22"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><path d="M12 20h.01"/>',
+    download: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/>'
   };
   return `<svg width="${s.w||18}" height="${s.h||18}" viewBox="0 0 24 24" fill="none" stroke="${s.stroke||'#9AA096'}" stroke-width="${s.sw||1.8}" stroke-linecap="round" stroke-linejoin="round">${icons[name]||''}</svg>`;
 }
@@ -583,6 +593,81 @@ function guardarPedidoBackend(totalPesos) {
   }).catch(() => {});
 }
 
+// ---------------------------------------------------------------------
+// Historial de pedidos ("Pedidos pasados" en Perfil, y "Pedir lo mismo
+// que la semana pasada" en Inicio) — ambos usan la misma lista, que se
+// trae del servidor con GET /api/order-save (ver ese archivo).
+// ---------------------------------------------------------------------
+async function loadOrderHistory() {
+  if (!state.authToken) return;
+  setState({ orderHistoryLoading: true });
+  try {
+    const r = await apiFetch('/api/order-save', {
+      headers: { Authorization: 'Bearer ' + state.authToken }
+    });
+    if (r.ok && r.data && Array.isArray(r.data.history)) {
+      setState({ orderHistoryLoading: false, orderHistoryLoaded: true, orderHistory: r.data.history });
+    } else {
+      setState({ orderHistoryLoading: false, orderHistoryLoaded: true });
+    }
+  } catch (e) {
+    // Sin conexión: nos quedamos con lo que ya teníamos cargado (si algo), y
+    // NO marcamos orderHistoryLoaded, para que se vuelva a intentar cuando
+    // regrese la señal (en vez de quedarse vacío para siempre).
+    setState({ orderHistoryLoading: false });
+  }
+}
+
+// Recalcula el precio de un platillo guardado usando el menú de HOY (en vez
+// de reusar el precio viejo tal cual venía guardado), por si cambiaste
+// precios desde la última vez que se pidió — así "Pedir lo mismo" siempre
+// cobra el precio correcto y actual.
+function precioActualParaItem(historicoItem) {
+  if (!historicoItem) return null;
+  const qty = historicoItem.savedQty || 1;
+  if (historicoItem.name === 'Poke') {
+    const ingredientesGuardados = historicoItem.savedIngredients || {};
+    const total = POKE_SERVICE_FEE + INGREDIENTES.reduce((sum, ing) => sum + (ingredientesGuardados[ing.key] ? ing.price : 0), 0);
+    return '$' + (total * qty).toFixed(2);
+  }
+  const enMenu = PLATOS.concat(OTROS).find((m) => m.name === historicoItem.name);
+  const unitNum = enMenu ? parsePriceNum(enMenu.price) : parsePriceNum(historicoItem.price);
+  return unitNum != null ? ('$' + (unitNum * qty).toFixed(2)) : ((enMenu && enMenu.price) || historicoItem.price);
+}
+
+// Llena "Mi semana" con el pedido pagado más reciente (mismos platillos,
+// mismos horarios si los había) y te manda a revisarlo antes de pagar —
+// NUNCA cobra solo: siempre pasas otra vez por Confirmar pedido -> Pagar,
+// para que puedas ajustar algo o ver el total antes de aceptar.
+function repetirPedidoUltimoPedido() {
+  if (!state.orderHistory || state.orderHistory.length === 0) return;
+  const ultimo = state.orderHistory[0];
+  const wo = {};
+  const nuevosHorarios = {};
+  DIAS.forEach((dia) => {
+    const historicoItem = ultimo.items && ultimo.items[dia];
+    if (!historicoItem) return;
+    const enMenu = PLATOS.concat(OTROS).find((m) => m.name === historicoItem.name);
+    const base = enMenu || historicoItem; // si ya no está en el menú, lo dejamos como venía guardado
+    wo[dia] = {
+      ...base,
+      price: precioActualParaItem(historicoItem) ?? historicoItem.price,
+      savedQty: historicoItem.savedQty ?? 1,
+      savedIngredients: historicoItem.savedIngredients ?? null
+    };
+    if (ultimo.horarios && ultimo.horarios[dia]) nuevosHorarios[dia] = ultimo.horarios[dia];
+  });
+  const allDaysMatch = DIAS.every((d) => wo[d] && wo[d].name === (wo['Lunes'] && wo['Lunes'].name));
+  setState({
+    weekOrder: wo,
+    horarios: nuevosHorarios,
+    horarioEnabled: Object.keys(nuevosHorarios).length > 0,
+    wholeWeek: allDaysMatch,
+    plantel: ultimo.plantel || state.plantel,
+    screen: 'semana'
+  });
+}
+
 async function submitAuth() {
   const nameInput = document.getElementById('auth-name');
   const emailInput = document.getElementById('auth-email');
@@ -610,6 +695,7 @@ async function submitAuth() {
       const r = await apiFetch('/api/register', { method: 'POST', body: { name, email, password, phone: '' } });
       if (r.ok && r.data && r.data.token) {
         setState({ screen: 'inicio', user: r.data.user, authToken: r.data.token, authError: '', authName: '', authEmail: '', authPassword: '' });
+        loadOrderHistory();
         manejadoPorBackend = true;
       } else if (r.data && r.data.error) {
         setState({ authError: r.data.error, authName: name, authEmail: email, authPassword: password });
@@ -636,6 +722,7 @@ async function submitAuth() {
       const r = await apiFetch('/api/login', { method: 'POST', body: { email, password } });
       if (r.ok && r.data && r.data.token) {
         setState({ screen: 'inicio', user: r.data.user, authToken: r.data.token, authError: '', authEmail: '', authPassword: '' });
+        loadOrderHistory();
         manejadoPorBackend = true;
       } else if (r.data && r.data.error) {
         setState({ authError: r.data.error, authEmail: email, authPassword: password });
@@ -804,6 +891,62 @@ function adminLogout() {
   });
 }
 
+// Arma un Excel (.xlsx) con lo que ya está cargado en el panel — no vuelve a
+// pedirle nada al servidor, solo empaqueta lo que ves en pantalla en varias
+// hojas para que se lo puedas pasar a tu contador o abrirlo en una
+// computadora. Usa la librería SheetJS (cargada en el <head> como "XLSX").
+function exportarExcelAdmin() {
+  const data = state.adminData;
+  if (!data || typeof XLSX === 'undefined') return;
+
+  const costsPorSemana = {};
+  (data.costs || []).forEach((c) => { costsPorSemana[c.weekStart] = c; });
+
+  const resumenRows = (data.weeks || []).map((w) => {
+    const c = costsPorSemana[w.weekStart];
+    const gastosCents = c ? (c.ingredientesCents + c.empaqueCents + c.otrosGastosCents) : 0;
+    return {
+      'Semana': fmtWeekLabel(w.weekStart),
+      'Ventas': (w.ventasCents || 0) / 100,
+      'Pedidos pagados': w.pedidosPagados || 0,
+      'Ingredientes': c ? c.ingredientesCents / 100 : 0,
+      'Empaque': c ? c.empaqueCents / 100 : 0,
+      'Otros gastos': c ? c.otrosGastosCents / 100 : 0,
+      'Ganancia neta': ((w.ventasCents || 0) - gastosCents) / 100
+    };
+  });
+
+  const clientesRows = (data.customers || []).map((u) => ({
+    'Nombre': u.name,
+    'Correo': u.email,
+    'Teléfono': u.phone || '',
+    'Institución': u.plantel || '',
+    'Cliente desde': u.createdAt || ''
+  }));
+
+  const platillosRows = (data.topDishesAllTime || []).map((p) => ({
+    'Platillo': p.name,
+    'Veces pedido': p.count
+  }));
+
+  const gastosRows = (data.costs || []).map((c) => ({
+    'Semana': fmtWeekLabel(c.weekStart),
+    'Ingredientes': c.ingredientesCents / 100,
+    'Empaque': c.empaqueCents / 100,
+    'Otros gastos': c.otrosGastosCents / 100,
+    'Notas': c.notas || ''
+  }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumenRows), 'Resumen semanal');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clientesRows), 'Clientes');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(platillosRows), 'Platillos más vendidos');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(gastosRows), 'Gastos');
+
+  const hoy = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `ZANO - Reporte ${hoy}.xlsx`);
+}
+
 async function saveAdminCost() {
   if (!state.adminSelectedWeek) return;
   const ingredientesInput = document.getElementById('admin-cost-ingredientes');
@@ -955,7 +1098,7 @@ function mountPayPalButton(amount) {
             method: 'POST',
             headers: { Authorization: 'Bearer ' + state.authToken },
             body: { weekStart: computeWeekStartISO(), paymentId: details.id, totalCents: Math.round(amount * 100) }
-          }).catch(() => {});
+          }).then(() => loadOrderHistory()).catch(() => {});
         }
       });
     },
@@ -995,6 +1138,9 @@ function logout() {
     ayudaAutomatico: false,
     ayudaUltimoMensaje: '',
     historialTab: 'proximos',
+    orderHistory: [],
+    orderHistoryLoading: false,
+    orderHistoryLoaded: false,
     profileInfoError: '',
     authNotice: '',
     forgotEmail: '',
@@ -1749,6 +1895,12 @@ function renderAdmin() {
         <button onclick="adminLogout()" style="font-size:12px;font-weight:700;color:#B4472A;padding:8px 12px;border-radius:10px;border:1px solid #EFD7CE;flex-shrink:0;">Salir</button>
       </div>
 
+      ${data ? `
+      <button onclick="exportarExcelAdmin()" style="width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:8px;background:#F0ECE0;color:#1F2420;border-radius:12px;padding:12px;font-size:13px;font-weight:700;">
+        ${icon('download', { w: 16, h: 16, stroke: '#1F2420', sw: 1.8 })}
+        Exportar a Excel
+      </button>` : ''}
+
       <div class="card" style="display:flex;gap:4px;padding:4px;">
         ${tabs.map((t) => `<button onclick='setState({adminTab:${JSON.stringify(t.key)}})' class="admin-tab ${state.adminTab === t.key ? 'active' : ''}">${t.label}</button>`).join('')}
       </div>
@@ -1776,6 +1928,8 @@ function renderAdmin() {
 function renderInicio() {
   const diasConPedido = computeDiasConPedido();
   const plantelLabel = state.plantel ?? 'Elige tu institución';
+  const semanaVacia = diasConPedido.every((d) => !d.hasItem);
+  const puedeRepetirPedido = semanaVacia && state.orderHistory && state.orderHistory.length > 0;
   return `
     <div style="display:flex;flex-direction:column;gap:22px;">
       <div style="display:flex;align-items:center;gap:8px;">
@@ -1809,6 +1963,15 @@ function renderInicio() {
       </div>
 
       <button onclick="setState({screen:'semana'})" class="pill-btn">Armar mi semana</button>
+
+      ${puedeRepetirPedido ? `
+      <button onclick="repetirPedidoUltimoPedido()" class="card" style="width:100%;padding:14px;display:flex;align-items:center;gap:10px;text-align:left;">
+        ${icon('clock', { w: 20, h: 20, stroke: '#2B5D3F', sw: 1.7 })}
+        <div style="display:flex;flex-direction:column;gap:1px;">
+          <span style="font-size:13.5px;font-weight:600;color:#1F2420;">Pedir lo mismo que la semana pasada</span>
+          <span style="font-size:11.5px;color:#6B7268;">Semana del ${esc(fmtWeekLabel(state.orderHistory[0].weekStart))} · lo revisas antes de pagar</span>
+        </div>
+      </button>` : ''}
 
       <div>
         <div class="row" style="margin-bottom:12px;">
@@ -2150,12 +2313,23 @@ function renderPagoOk() {
 // ---------------------------------------------------------------------
 function renderPerfil() {
   // "Pedidos próximos" viene de tu semana armada de verdad; "pedidos pasados"
-  // sigue siendo un placeholder — esta app aún no guarda historial real entre sesiones.
+  // viene de tu historial real guardado en el servidor (ver loadOrderHistory()),
+  // sin contar la semana en curso (esa ya se ve en "Pedidos próximos").
   const proximos = computeDiasConPedido().filter((d) => d.hasItem);
-  const pasados = [
-    { semana: 'Semana del [fecha]', detalle: '5 comidas · Recolectado', estado: 'Entregado' },
-    { semana: 'Semana del [fecha]', detalle: '5 comidas · Recolectado', estado: 'Entregado' }
-  ];
+  const semanaActual = computeWeekStartISO();
+  const pasados = (state.orderHistory || [])
+    .filter((h) => h.weekStart !== semanaActual)
+    .map((h) => {
+      const numComidas = DIAS.filter((d) => h.items && h.items[d]).length;
+      const [y, m, d] = h.weekStart.split('-').map(Number);
+      const finDeSemana = new Date(y, m - 1, d + 6);
+      const yaPaso = new Date() > finDeSemana;
+      return {
+        semana: 'Semana del ' + fmtWeekLabel(h.weekStart),
+        detalle: numComidas + (numComidas === 1 ? ' comida · ' : ' comidas · ') + fmtMoney(h.totalCents),
+        estado: yaPaso ? 'Entregado' : 'Confirmado'
+      };
+    });
   const isProximos = state.historialTab === 'proximos';
 
   const metodosPago = [
@@ -2210,15 +2384,16 @@ function renderPerfil() {
               </div>
             `).join('') : `<p style="margin:0;font-size:12.5px;color:#6B7268;">No tienes pedidos próximos todavía.</p>`
           ) : (
-            pasados.map((h) => `
+            state.orderHistoryLoading && pasados.length === 0 ? `<p style="margin:0;font-size:12.5px;color:#6B7268;">Cargando…</p>` :
+            pasados.length > 0 ? pasados.map((h) => `
               <div class="card row" style="padding:14px;">
                 <div style="display:flex;flex-direction:column;gap:2px;">
-                  <span style="font-size:13.5px;font-weight:600;color:#1F2420;">${h.semana}</span>
-                  <span style="font-size:11.5px;color:#6B7268;">${h.detalle}</span>
+                  <span style="font-size:13.5px;font-weight:600;color:#1F2420;">${esc(h.semana)}</span>
+                  <span style="font-size:11.5px;color:#6B7268;">${esc(h.detalle)}</span>
                 </div>
-                <span style="font-size:11px;font-weight:700;color:#6B7268;background:#F0ECE0;border-radius:999px;padding:5px 10px;">${h.estado}</span>
+                <span style="font-size:11px;font-weight:700;color:#6B7268;background:#F0ECE0;border-radius:999px;padding:5px 10px;">${esc(h.estado)}</span>
               </div>
-            `).join('')
+            `).join('') : `<p style="margin:0;font-size:12.5px;color:#6B7268;">Todavía no tienes pedidos pasados.</p>`
           )}
         </div>
       </div>
@@ -2417,6 +2592,12 @@ function render() {
     }
   }
 
+  // Si entras a Perfil (o a Inicio, donde vive "Pedir lo mismo") y todavía
+  // no hemos traído tu historial en esta sesión, lo pedimos una vez.
+  if ((state.screen === 'perfil' || state.screen === 'inicio') && state.authToken && !state.orderHistoryLoading && !state.orderHistoryLoaded) {
+    loadOrderHistory();
+  }
+
   if (showNav) {
     const isInicio = state.screen === 'inicio';
     const isMenu = state.screen === 'menu';
@@ -2520,6 +2701,7 @@ render();
 // datos de una vez (igual que pasa justo después de meter la contraseña).
 if (state.screen === 'admin' && state.adminToken) loadAdminData();
 if (state.screen === 'staff' && state.staffToken) loadStaffData();
+if (state.screen === 'inicio' && state.authToken) loadOrderHistory();
 
 // Si la app se quedó en la pantalla de "Sin conexión" y vuelve la señal,
 // regresa sola a la app normal (inicio si ya había sesión, o landing).
