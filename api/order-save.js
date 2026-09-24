@@ -1,19 +1,54 @@
-// Guarda (o actualiza) el pedido "en borrador" de la semana en curso. La app
-// lo llama sola cuando la persona entra a la pantalla de Pagar — así, si deja
-// el pedido a medias sin pagar, el cron de abandonados lo puede detectar.
+// Dos cosas, para no gastar otra función serverless (ver límite de 12 del
+// plan gratuito de Vercel — ya está justo en el tope):
+//   POST -> guarda (o actualiza) el pedido "en borrador" de la semana en
+//           curso. La app lo llama sola cuando la persona entra a la
+//           pantalla de Pagar — así, si deja el pedido a medias sin pagar,
+//           el cron de abandonados lo puede detectar.
+//   GET  -> tu historial de pedidos YA PAGADOS de semanas anteriores (el
+//           más reciente primero) — lo usa la pantalla de Perfil para
+//           mostrar "Pedidos pasados" y el botón "Pedir lo mismo".
 const { getPool } = require('./_db');
 const { getUserFromRequest } = require('./_auth');
 
 module.exports = async function handler(req, res) {
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Método no permitido.' });
-    return;
-  }
   const auth = getUserFromRequest(req);
   if (!auth) {
     res.status(401).json({ error: 'Sesión inválida o vencida.' });
     return;
   }
+
+  if (req.method === 'GET') {
+    try {
+      const pool = getPool();
+      const result = await pool.query(
+        `SELECT week_start::text AS week_start, items, horarios, plantel, total_cents
+         FROM weekly_orders
+         WHERE user_id = $1 AND status = 'paid'
+         ORDER BY week_start DESC
+         LIMIT 15`,
+        [auth.uid]
+      );
+      res.status(200).json({
+        history: result.rows.map((r) => ({
+          weekStart: r.week_start,
+          items: r.items || {},
+          horarios: r.horarios || {},
+          plantel: r.plantel || null,
+          totalCents: r.total_cents || 0
+        }))
+      });
+    } catch (err) {
+      console.error('[order-save:history] Error:', err);
+      res.status(500).json({ error: 'Error del servidor al cargar tu historial.' });
+    }
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Método no permitido.' });
+    return;
+  }
+
   try {
     const { weekStart, items, totalCents, horarios, plantel } = req.body || {};
     if (!weekStart) {
