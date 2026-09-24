@@ -10,14 +10,13 @@
 // admin): esas llamadas siempre van a la red, para no mostrar nunca datos
 // viejos como si fueran reales.
 
-// v6: index.html ahora registra este archivo con updateViaCache:'none' y
-// se recarga solo en cuanto detecta una versión nueva de este
-// service worker — antes el navegador podía guardar en caché el propio
-// sw.js y nunca enterarse de que había una versión nueva, así que los
-// cambios de diseño (como la barra de abajo más delgada) se podían quedar
-// sin verse por mucho tiempo en un ícono ya instalado. Subimos el número
-// una vez más para que este arreglo mismo se active.
-const CACHE_NAME = 'zano-shell-v6';
+// v7: index.html cambió otra vez — se encontró y quitó un límite viejo de
+// altura ("max-height: 100dvh") que le ganaba al alto real que calcula el
+// JavaScript, y dejaba un hueco en blanco pegado a la barra de abajo
+// (pareciendo que la barra en sí era más gruesa). Subimos el número para
+// que este cambio se note de inmediato en vez de esperar a la siguiente
+// visita.
+const CACHE_NAME = 'zano-shell-v7';
 const APP_SHELL = [
   './',
   './index.html',
