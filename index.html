@@ -157,21 +157,22 @@
     position: absolute;
     left: 0; right: 0; bottom: 0;
     /* El "36px" es lo que de verdad se puede achicar (íconos + texto +
-       aire). El "env(safe-area-inset-bottom)" se usa al 75% (reducido
-       1/4) A PROPÓSITO Y A SABIENDAS del riesgo: se probó con Playwright
-       y los íconos quedan como 8-9px dentro de la zona real del gesto
-       de "ir a inicio" del iPhone — o sea que sí puede pasar que un toque
-       cerca del borde de abajo se confunda con ese gesto en vez de
-       registrar el clic. Se dejó así porque así se pidió explícitamente,
+       aire). El "env(safe-area-inset-bottom)" se redujo otro 1/4 más
+       (ahora queda al 56.25% de lo real, era 75%) A PROPÓSITO Y A
+       SABIENDAS del riesgo: mientras menos franja se deja, más se meten
+       los íconos dentro de la zona real del gesto de "ir a inicio" del
+       iPhone — con esta reducción quedan unos 15px dentro de esa zona
+       (más que antes). Se dejó así porque así se pidió explícitamente,
        aceptando ese riesgo. Esa franja es del mismo blanco que el resto
-       de la barra, así que se ve como un solo bloque. */
-    height: calc(36px + (env(safe-area-inset-bottom, 0px) * 0.75));
+       de la barra (y que el fondo de la página, ver más abajo en el JS),
+       así que todo se ve como un solo bloque blanco. */
+    height: calc(36px + (env(safe-area-inset-bottom, 0px) * 0.5625));
     background: #FFFFFF;
     border-top: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: space-around;
-    padding-bottom: calc(env(safe-area-inset-bottom, 0px) * 0.75);
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) * 0.5625);
     box-sizing: border-box;
   }
   @media (max-width: 600px) {
@@ -2697,7 +2698,7 @@ function render() {
   else if (state.screen === 'perfil') html = renderPerfil();
   else if (state.screen === 'perfilInfo') html = renderPerfilInfo();
 
-  contentEl.style.bottom = showNav ? 'calc(36px + (env(safe-area-inset-bottom, 0px) * 0.75))' : '0px';
+  contentEl.style.bottom = showNav ? 'calc(36px + (env(safe-area-inset-bottom, 0px) * 0.5625))' : '0px';
   contentEl.style.overflowY = state.screen === 'landing' ? 'hidden' : 'auto';
   contentEl.innerHTML = html;
   contentEl.scrollTop = 0;
@@ -2706,11 +2707,13 @@ function render() {
   // la pantalla un poquito más chico o más grande de lo que en realidad
   // es (pasa sobre todo justo después de abrir la app o al agregarla a
   // pantalla de inicio), se alcanza a asomar el fondo de "body" debajo de
-  // la barra de navegación. Ese espacio -si aparece- se pinta del mismo
-  // crema de fondo de toda la app (var(--bg) / #FAF8F3), como una franja
-  // propia debajo de la barra blanca, en vez de blanco puro.
-  document.body.style.background = showNav ? '#FAF8F3' : '';
-  document.documentElement.style.background = showNav ? '#FAF8F3' : '';
+  // la barra de navegación. Antes ese espacio se pintaba de crema
+  // (#FAF8F3) — se veía como una franja aparte, de otro color, debajo de
+  // la barra blanca. Ahora se pinta del mismo blanco que la barra, para
+  // que las dos franjas (la barra y lo que se alcance a asomar debajo)
+  // sean un solo color.
+  document.body.style.background = showNav ? '#FFFFFF' : '';
+  document.documentElement.style.background = showNav ? '#FFFFFF' : '';
 
   if (state.screen === 'pago') {
     const diasConPedido = computeDiasConPedido();
