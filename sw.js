@@ -23,7 +23,10 @@
 // iconos de pantalla de inicio). Se sube la versión del caché para que
 // los teléfonos que ya habían instalado la versión "MAZANO" bajen esta
 // actualización y dejen de mostrar el logo/nombre viejo.
-const CACHE_NAME = 'zano-shell-v26';
+
+// v27: se quitó "chorizo" de la descripción de Huevos Rancheros (ahora
+// solo dice "machaca").
+const CACHE_NAME = 'zano-shell-v27';
 const APP_SHELL = [
   './',
   './index.html',
