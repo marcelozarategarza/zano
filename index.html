@@ -157,22 +157,21 @@
     position: absolute;
     left: 0; right: 0; bottom: 0;
     /* El "36px" es lo que de verdad se puede achicar (íconos + texto +
-       aire). El "env(safe-area-inset-bottom)" se redujo otro 1/4 más
-       (ahora queda al 56.25% de lo real, era 75%) A PROPÓSITO Y A
+       aire). El "env(safe-area-inset-bottom)" se redujo OTRO 1/4 más
+       (ahora queda al 42.1875% de lo real, era 56.25%) A PROPÓSITO Y A
        SABIENDAS del riesgo: mientras menos franja se deja, más se meten
        los íconos dentro de la zona real del gesto de "ir a inicio" del
-       iPhone — con esta reducción quedan unos 15px dentro de esa zona
-       (más que antes). Se dejó así porque así se pidió explícitamente,
-       aceptando ese riesgo. Esa franja es del mismo blanco que el resto
-       de la barra (y que el fondo de la página, ver más abajo en el JS),
-       así que todo se ve como un solo bloque blanco. */
-    height: calc(36px + (env(safe-area-inset-bottom, 0px) * 0.5625));
+       iPhone. Se dejó así porque así se pidió explícitamente, aceptando
+       ese riesgo. Esa franja es del mismo blanco que el resto de la
+       barra (y que el fondo de la página, ver más abajo en el JS), así
+       que todo se ve como un solo bloque blanco. */
+    height: calc(36px + (env(safe-area-inset-bottom, 0px) * 0.421875));
     background: #FFFFFF;
     border-top: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: space-around;
-    padding-bottom: calc(env(safe-area-inset-bottom, 0px) * 0.5625);
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) * 0.421875);
     box-sizing: border-box;
   }
   @media (max-width: 600px) {
@@ -214,7 +213,7 @@
      nota nada (ahí la franja mide 0px). En el iPhone real, esto los
      acerca aún más a la zona del gesto de inicio — ya se sabe y se
      acepta el riesgo, pedido a propósito. */
-  .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; color: #9AA096; transform: translateY(calc(env(safe-area-inset-bottom, 0px) * 0.5625 / 2)); }
+  .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; color: #9AA096; transform: translateY(calc(env(safe-area-inset-bottom, 0px) * 0.421875 / 2)); }
   .nav-item.active { color: var(--green); }
   .nav-item span { font-size: 10px; font-weight: 600; line-height: 1; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; }
@@ -2706,7 +2705,7 @@ function render() {
   else if (state.screen === 'perfil') html = renderPerfil();
   else if (state.screen === 'perfilInfo') html = renderPerfilInfo();
 
-  contentEl.style.bottom = showNav ? 'calc(36px + (env(safe-area-inset-bottom, 0px) * 0.5625))' : '0px';
+  contentEl.style.bottom = showNav ? 'calc(36px + (env(safe-area-inset-bottom, 0px) * 0.421875))' : '0px';
   contentEl.style.overflowY = state.screen === 'landing' ? 'hidden' : 'auto';
   contentEl.innerHTML = html;
   contentEl.scrollTop = 0;
