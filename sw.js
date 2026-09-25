@@ -26,7 +26,10 @@
 
 // v27: se quitó "chorizo" de la descripción de Huevos Rancheros (ahora
 // solo dice "machaca").
-const CACHE_NAME = 'zano-shell-v27';
+
+// v28: se agregó el botón "Volver a inicio" en la pantalla de
+// Iniciar sesión / Crear cuenta.
+const CACHE_NAME = 'zano-shell-v28';
 const APP_SHELL = [
   './',
   './index.html',
