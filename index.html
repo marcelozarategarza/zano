@@ -1602,6 +1602,8 @@ function renderAuth() {
       </div>` : ''}
 
       <button onclick="submitAuth()" class="pill-btn">${isSignup ? 'Crear cuenta' : 'Iniciar sesión'}</button>
+
+      <button onclick="setState({screen:'landing', authError:'', authNotice:''})" style="font-size:12.5px;font-weight:600;color:#6B7268;text-align:center;">Volver a inicio</button>
     </div>
   `;
 }
