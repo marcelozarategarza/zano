@@ -158,20 +158,20 @@
     left: 0; right: 0; bottom: 0;
     /* El "36px" es lo que de verdad se puede achicar (íconos + texto +
        aire). El "env(safe-area-inset-bottom)" se redujo OTRO 1/4 más
-       (ahora queda al 42.1875% de lo real, era 56.25%) A PROPÓSITO Y A
-       SABIENDAS del riesgo: mientras menos franja se deja, más se meten
-       los íconos dentro de la zona real del gesto de "ir a inicio" del
-       iPhone. Se dejó así porque así se pidió explícitamente, aceptando
-       ese riesgo. Esa franja es del mismo blanco que el resto de la
-       barra (y que el fondo de la página, ver más abajo en el JS), así
-       que todo se ve como un solo bloque blanco. */
-    height: calc(36px + (env(safe-area-inset-bottom, 0px) * 0.421875));
+       (ahora queda al 31.640625% de lo real, era 42.1875%) A PROPÓSITO Y
+       A SABIENDAS del riesgo: mientras menos franja se deja, más se
+       meten los íconos dentro de la zona real del gesto de "ir a inicio"
+       del iPhone. Se dejó así porque así se pidió explícitamente,
+       aceptando ese riesgo. Esa franja es del mismo blanco que el resto
+       de la barra (y que el fondo de la página, ver más abajo en el JS),
+       así que todo se ve como un solo bloque blanco. */
+    height: calc(36px + (env(safe-area-inset-bottom, 0px) * 0.31640625));
     background: #FFFFFF;
     border-top: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: space-around;
-    padding-bottom: calc(env(safe-area-inset-bottom, 0px) * 0.421875);
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) * 0.31640625);
     box-sizing: border-box;
   }
   @media (max-width: 600px) {
@@ -213,7 +213,7 @@
      nota nada (ahí la franja mide 0px). En el iPhone real, esto los
      acerca aún más a la zona del gesto de inicio — ya se sabe y se
      acepta el riesgo, pedido a propósito. */
-  .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; color: #9AA096; transform: translateY(calc(env(safe-area-inset-bottom, 0px) * 0.421875 / 2)); }
+  .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; color: #9AA096; transform: translateY(calc(env(safe-area-inset-bottom, 0px) * 0.31640625 / 2)); }
   .nav-item.active { color: var(--green); }
   .nav-item span { font-size: 10px; font-weight: 600; line-height: 1; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; }
@@ -484,7 +484,9 @@ function icon(name, extra) {
     faceid: '<path d="M10 22V14a4 4 0 0 1 4-4h8"/><path d="M42 10h8a4 4 0 0 1 4 4v8"/><path d="M10 42v8a4 4 0 0 0 4 4h8"/><path d="M54 42v8a4 4 0 0 1-4 4h-8"/><circle cx="24" cy="28" r="1.6" fill="#1F2420" stroke="none"/><circle cx="40" cy="28" r="1.6" fill="#1F2420" stroke="none"/><path d="M32 26v8"/><path d="M24 40c3 3 13 3 16 0"/>',
     photo: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5-9 9"/>',
     wifiOff: '<path d="M1 1l22 22"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><path d="M12 20h.01"/>',
-    download: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/>'
+    download: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/>',
+    eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/>',
+    eyeOff: '<path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/>'
   };
   return `<svg width="${s.w||18}" height="${s.h||18}" viewBox="0 0 24 24" fill="none" stroke="${s.stroke||'#9AA096'}" stroke-width="${s.sw||1.8}" stroke-linecap="round" stroke-linejoin="round">${icons[name]||''}</svg>`;
 }
@@ -788,6 +790,20 @@ function repetirPedidoUltimoPedido() {
     plantel: ultimo.plantel || state.plantel,
     screen: 'semana'
   });
+}
+
+// Muestra u oculta la contraseña del login. Se hace manipulando el DOM
+// directo (sin pasar por setState/render) a propósito: si volviéramos a
+// dibujar toda la pantalla, el campo se regenera desde state.authPassword
+// -que solo se actualiza cuando das clic en "Iniciar sesión"-, y se
+// perdería lo que llevas escrito si aún no le das submit.
+function togglePasswordVisibility() {
+  const input = document.getElementById('auth-password');
+  const toggle = document.getElementById('auth-password-toggle');
+  if (!input || !toggle) return;
+  const mostrando = input.type === 'text';
+  input.type = mostrando ? 'password' : 'text';
+  toggle.innerHTML = icon(mostrando ? 'eye' : 'eyeOff', { w: 19, h: 19, stroke: '#9AA096', sw: 1.8 });
 }
 
 async function submitAuth() {
@@ -1542,7 +1558,10 @@ function renderAuth() {
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;">
           <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Contraseña</label>
-          <input id="auth-password" type="password" value="${esc(state.authPassword)}" placeholder="Mínimo 6 caracteres">
+          <div style="position:relative;display:flex;align-items:center;">
+            <input id="auth-password" type="password" value="${esc(state.authPassword)}" placeholder="Mínimo 6 caracteres" style="padding-right:44px;">
+            <span id="auth-password-toggle" onclick="togglePasswordVisibility()" style="position:absolute;right:14px;display:flex;align-items:center;cursor:pointer;">${icon('eye', { w: 19, h: 19, stroke: '#9AA096', sw: 1.8 })}</span>
+          </div>
         </div>
         ${!isSignup ? `
         <button onclick="setState({screen:'forgot', forgotError:'', forgotEmail: state.authEmail})" style="align-self:flex-end;font-size:12.5px;font-weight:600;color:#2B5D3F;">¿Olvidaste tu contraseña?</button>` : ''}
@@ -2705,7 +2724,7 @@ function render() {
   else if (state.screen === 'perfil') html = renderPerfil();
   else if (state.screen === 'perfilInfo') html = renderPerfilInfo();
 
-  contentEl.style.bottom = showNav ? 'calc(36px + (env(safe-area-inset-bottom, 0px) * 0.421875))' : '0px';
+  contentEl.style.bottom = showNav ? 'calc(36px + (env(safe-area-inset-bottom, 0px) * 0.31640625))' : '0px';
   contentEl.style.overflowY = state.screen === 'landing' ? 'hidden' : 'auto';
   contentEl.innerHTML = html;
   contentEl.scrollTop = 0;
