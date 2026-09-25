@@ -10,13 +10,15 @@
 // admin): esas llamadas siempre van a la red, para no mostrar nunca datos
 // viejos como si fueran reales.
 
-// v17: index.html cambió otra vez — la franja reservada para el gesto
-// de inicio del iPhone se redujo 1/4 (se usa al 75%) A PROPÓSITO, pedido
-// explícitamente aunque se avisó del riesgo: con Playwright se
-// comprobó que los íconos quedan unos 8-9px dentro de la zona real del
-// gesto, así que un toque muy cerca del borde de abajo podría a veces
-// confundirse con el gesto del sistema en vez de registrar el clic.
-const CACHE_NAME = 'zano-shell-v17';
+// v18: index.html cambió otra vez — la franja reservada se redujo OTRO
+// 1/4 (ahora queda al 56.25% de lo real, era 75%), pedido explícitamente
+// aceptando el riesgo — ahora los íconos quedan unos 15px dentro de la
+// zona real del gesto (más que en v17). También se unificó el color:
+// antes, si por un cálculo de alto imperfecto se asomaba el fondo de la
+// página debajo de la barra, se pintaba crema (#FAF8F3) — ahora se pinta
+// blanco (#FFFFFF), igual que la barra, para que no se vean dos franjas
+// de color distinto.
+const CACHE_NAME = 'zano-shell-v18';
 const APP_SHELL = [
   './',
   './index.html',
