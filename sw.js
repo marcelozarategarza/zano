@@ -10,14 +10,12 @@
 // admin): esas llamadas siempre van a la red, para no mostrar nunca datos
 // viejos como si fueran reales.
 
-// v21: index.html cambió otra vez — dos cosas: (1) la franja reservada
-// se redujo OTRO 1/4 más (ahora queda al 31.640625% de lo real, era
-// 42.1875%), pedido explícitamente aceptando el riesgo. (2) se agregó
-// un ícono de "ojito" en el campo de contraseña del login para
-// mostrar/ocultar lo que escribes — se hizo con JS directo al campo
-// (sin pasar por el render normal) para no borrar lo que ya llevas
-// escrito si tocas el ojito antes de darle a "Iniciar sesión".
-const CACHE_NAME = 'zano-shell-v21';
+// v22: index.html cambió otra vez — se cambió el Client ID de PayPal de
+// "sb" (modo de pruebas/sandbox) al Client ID real de LIVE de la cuenta
+// de negocio de ZANO. A partir de esta versión, cualquier pago que se
+// haga en la app es dinero real, ya no de mentiras. Sigue cobrando en
+// pesos mexicanos (MXN).
+const CACHE_NAME = 'zano-shell-v22';
 const APP_SHELL = [
   './',
   './index.html',
