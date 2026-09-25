@@ -301,14 +301,15 @@ const HORARIOS = ['10:00 am', '10:30 am', '11:00 am', '11:30 am', '12:00 pm', '1
 const PLANTELES = ['Campus Monterrey', 'Tec Valle Alto', 'Tec Santa Catarina', 'Tec Garza Laguera', 'Udem San Pedro', 'Udem Valle Alto'];
 
 const PLATOS = [
-  { name: 'Huevos Americanos', desc: 'Huevo, tocino, hotcakes y hash browns, con miel o condimento al gusto', price: '$150.00', protein: 49.2, carbs: 90, fat: 46.3, kcal: 974, weight: 600.75, fiber: 4.2 },
-  { name: 'Huevos Rancheros', desc: 'Huevo con machaca, chile serrano, cebolla, papa, tomate, aguacate, tostadas y frijoles', price: '$175.00', protein: 59.1, carbs: 75.1, fat: 40.3, kcal: 900, weight: 561, fiber: 17.2 },
-  { name: 'Poke', desc: 'Bowl fresco con proteína, arroz y vegetales — arma el tuyo', price: '$0.00', protein: 59, carbs: 66.6, fat: 20.6, kcal: 688, weight: 514, fiber: 8.8 },
-  { name: 'Ensalada César', desc: 'Lechuga romana, pollo a la plancha, queso parmesano, crutones y aderezo césar', price: '$170.00', protein: 55.8, carbs: 26.6, fat: 12.4, kcal: 441, weight: 438, fiber: 4.5 },
-  { name: 'Pasta Alfredo con Pollo', desc: 'Pechuga de pollo a la plancha con pasta fettuccine en salsa alfredo y queso parmesano', price: '$160.00', protein: 71.6, carbs: 80.7, fat: 32.4, kcal: 901, weight: 503, fiber: 4.8 }
+  { name: 'Huevos Americanos', desc: 'Huevo, tocino, hotcakes y hash browns, con miel o condimento al gusto', price: '$150.00', protein: 49.2, carbs: 90, fat: 46.3, kcal: 974, weight: 600.75, fiber: 4.2, img: 'images/huevos-americanos.jpg' },
+  { name: 'Huevos Rancheros', desc: 'Huevo con machaca, chile serrano, cebolla, papa, tomate, aguacate, tostadas y frijoles', price: '$175.00', protein: 59.1, carbs: 75.1, fat: 40.3, kcal: 900, weight: 561, fiber: 17.2, img: 'images/huevos-rancheros.jpg' },
+  { name: 'Poke', desc: 'Bowl fresco con proteína, arroz y vegetales — arma el tuyo', price: '$0.00', protein: 59, carbs: 66.6, fat: 20.6, kcal: 688, weight: 514, fiber: 8.8, img: 'images/poke.jpg' },
+  { name: 'Ensalada César', desc: 'Lechuga romana, pollo a la plancha, queso parmesano, crutones y aderezo césar', price: '$170.00', protein: 55.8, carbs: 26.6, fat: 12.4, kcal: 441, weight: 438, fiber: 4.5, img: 'images/ensalada-cesar.jpg' },
+  { name: 'Pasta Alfredo con Pollo', desc: 'Pechuga de pollo a la plancha con pasta fettuccine en salsa alfredo y queso parmesano', price: '$160.00', protein: 71.6, carbs: 80.7, fat: 32.4, kcal: 901, weight: 503, fiber: 4.8, img: 'images/pasta-alfredo.jpg' }
 ];
 
 const OTROS = [
+  { name: 'Agua (1 litro)', desc: 'Va incluida gratis con tu pedido, no se agrega aparte', price: 'Gratis' },
   { name: 'Yogurt Griego', desc: 'Con granola y fruta de temporada', price: '[PRECIO]' },
   { name: 'Bowl de Frutas', desc: 'Fruta fresca de temporada', price: '[PRECIO]' },
   { name: 'Postres y Snacks', desc: 'Variedad rotativa cada semana', price: '[PRECIO]' },
@@ -2224,10 +2225,14 @@ function renderMenuDetail() {
         ${icon('chevronRight', { w: 16, h: 16 }).replace('M9 6l6 6-6 6', 'M15 6l-6 6 6 6')} Volver al menú
       </button>
 
+      ${selected.img ? `
+      <div style="width:100%;height:180px;border-radius:16px;overflow:hidden;">
+        <img src="${esc(selected.img)}" alt="${esc(selected.name)}" style="width:100%;height:100%;object-fit:cover;display:block;">
+      </div>` : `
       <div style="width:100%;height:180px;border-radius:16px;background:#EDE7D8;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;">
         ${icon('photo', { w: 30, h: 30 })}
         <span style="font-size:11.5px;color:#9AA096;">[FOTO DEL PLATILLO]</span>
-      </div>
+      </div>`}
 
       <div>
         <h1 style="margin:0 0 6px 0;font-family:'Fraunces',serif;font-weight:600;font-size:28px;color:#1F2420;">${esc(selected.name)}</h1>
