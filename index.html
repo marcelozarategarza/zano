@@ -41,14 +41,15 @@
 <!--
   Cobro real con PayPal (sin backend): el Client ID de abajo es público (va en el
   navegador) y es seguro exponerlo — NUNCA pongas aquí un "Secret" de PayPal.
-  Para probar sin dinero real, deja "sb" (modo sandbox/pruebas).
-  Para cobrar de verdad, cámbialo por el Client ID de tu cuenta real (ver README).
+  Este ya es el Client ID de LIVE (cuenta real de negocio de ZANO) — a partir de
+  aquí, cualquier pago que se haga en la app es dinero real, no de prueba.
+  "currency=MXN" cobra en pesos mexicanos.
   "enable-funding=card" le dice a PayPal que muestre también el botón para pagar
   con tarjeta de crédito/débito sin necesitar cuenta de PayPal — los datos de la
   tarjeta los captura y procesa PayPal directamente (nunca pasan por nuestro
   servidor ni por nuestra base de datos).
 -->
-<script src="https://www.paypal.com/sdk/js?client-id=sb&currency=MXN&intent=capture&enable-funding=card"></script>
+<script src="https://www.paypal.com/sdk/js?client-id=BAA9IQZnchv-jwAGGZMjpBuVQY8KCQfhR4Yu25NGnxPuGNzoT1alY1890JpmXWBVNS4A_Cbc1tY_2Kvh50&currency=MXN&intent=capture&enable-funding=card"></script>
 <!--
   Envío automático del correo de "Ayuda" (sin backend) con EmailJS: la Public Key
   es pública y es seguro exponerla — NUNCA pongas aquí una llave privada.
