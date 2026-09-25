@@ -29,7 +29,23 @@
 
 // v28: se agregó el botón "Volver a inicio" en la pantalla de
 // Iniciar sesión / Crear cuenta.
-const CACHE_NAME = 'zano-shell-v28';
+
+// v29: se agregó la foto real de Huevos Rancheros (antes solo mostraba
+// el cuadro gris "[FOTO DEL PLATILLO]").
+
+// v30: se agregó la foto real de Ensalada César.
+
+// v31: se agregó la foto real de Pasta Alfredo con Pollo.
+
+// v32: se agregó la foto real de Huevos Americanos.
+
+// v33: se agregó la foto real de Poke. Con esto, los 5 platillos del
+// menú ya tienen su foto real (ya no queda ninguno con el cuadro gris
+// "[FOTO DEL PLATILLO]").
+
+// v34: se agregó "Agua (1 litro)" en Bebidas y postres, aclarando que
+// va incluida gratis con el pedido.
+const CACHE_NAME = 'zano-shell-v34';
 const APP_SHELL = [
   './',
   './index.html',
