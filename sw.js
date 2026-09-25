@@ -45,7 +45,33 @@
 
 // v34: se agregó "Agua (1 litro)" en Bebidas y postres, aclarando que
 // va incluida gratis con el pedido.
-const CACHE_NAME = 'zano-shell-v34';
+
+// v35: se arregló que el pago con PayPal se quedaba atorado cuando la
+// app se usa ya instalada como ícono en la pantalla de inicio (iOS
+// manda esa ventanita de pago a una pestaña de Safari suelta, sin
+// conexión con la app, y la X de PayPal no puede cerrarla ni avisar
+// que se canceló — es una limitación de Apple con apps instaladas, no
+// un error de esta app). Ahora, si detecta que está abierta así, en
+// vez de abrir ese botón roto muestra un aviso con un enlace para
+// abrir la misma página en Safari normal y pagar ahí sin problema.
+
+// v36: se encontró la causa real de que la X de PayPal no se pudiera
+// tocar bien (confirmado con captura): nuestra página usa
+// "viewport-fit=cover" para que el resto de la app se vea bien detrás
+// del notch/Dynamic Island del iPhone, pero la ventanita de PayPal NO
+// sabe nada de eso — dibuja su propia X pegada al borde de arriba
+// pensando que ahí empieza la pantalla, y por eso queda escondida justo
+// detrás del reloj/batería, casi imposible de tocar. Ahora, mientras se
+// muestra esa ventanita de PayPal, se le quita por un momento el
+// "viewport-fit=cover" (así su X se dibuja más abajo, en zona segura),
+// y se regresa a la normalidad en cuanto el pago termina (aprobado,
+// cancelado o con error).
+
+// v37: se actualizaron los macros de Salmón (40g proteína, 0g carbos,
+// 26g grasa) y Camarón (46g proteína, 0.4g carbos, 3.4g grasa) como
+// proteínas del Poke, tomados directo de la hoja de costeo. Atún no se
+// tocó.
+const CACHE_NAME = 'zano-shell-v37';
 const APP_SHELL = [
   './',
   './index.html',
