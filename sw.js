@@ -10,15 +10,13 @@
 // admin): esas llamadas siempre van a la red, para no mostrar nunca datos
 // viejos como si fueran reales.
 
-// v18: index.html cambió otra vez — la franja reservada se redujo OTRO
-// 1/4 (ahora queda al 56.25% de lo real, era 75%), pedido explícitamente
-// aceptando el riesgo — ahora los íconos quedan unos 15px dentro de la
-// zona real del gesto (más que en v17). También se unificó el color:
-// antes, si por un cálculo de alto imperfecto se asomaba el fondo de la
-// página debajo de la barra, se pintaba crema (#FAF8F3) — ahora se pinta
-// blanco (#FFFFFF), igual que la barra, para que no se vean dos franjas
-// de color distinto.
-const CACHE_NAME = 'zano-shell-v18';
+// v19: index.html cambió otra vez — los íconos y texto de la barra
+// (Inicio/Menú/Mi semana/Perfil) ya no quedan pegados arriba; ahora se
+// recorren hacia abajo para quedar centrados en medio de TODA la barra
+// (incluyendo la franja reservada), no solo en la parte de arriba. En
+// la Mac no se nota nada (ahí la franja mide 0px). En el iPhone real
+// esto los acerca aún más a la zona del gesto de inicio.
+const CACHE_NAME = 'zano-shell-v19';
 const APP_SHELL = [
   './',
   './index.html',
