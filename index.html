@@ -286,6 +286,24 @@ function ajustarAltoReal() {
   const alto = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
   phone.style.height = alto + 'px';
 }
+
+// Detecta si la app se está viendo YA INSTALADA como ícono en la pantalla
+// de inicio (modo standalone), en vez de dentro de Safari/Chrome normal.
+//
+// Por qué importa esto para el pago: dentro de una app instalada así,
+// iOS no deja que el botón de PayPal abra su ventanita de pago normal
+// (la que se cierra sola con la X al cancelar o terminar). En vez de
+// eso, iOS manda esa ventanita a una pestaña nueva de Safari, SUELTA,
+// sin ninguna conexión con la app — por eso la X de PayPal no hace
+// nada: no tiene forma de avisarle a la app "ya cancelé" ni de
+// cerrarse sola, y la persona se queda atorada cambiando de pestaña a
+// mano. Esto es una limitación de Apple, no un error de esta app — así
+// que en vez de dejar que la gente se atore ahí, mejor se les avisa
+// ANTES de intentar pagar, con instrucciones de cómo pagar bien.
+function appInstalada() {
+  return (window.navigator.standalone === true) ||
+    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+}
 window.addEventListener('resize', ajustarAltoReal);
 window.addEventListener('orientationchange', () => setTimeout(ajustarAltoReal, 300));
 window.addEventListener('pageshow', ajustarAltoReal);
@@ -325,8 +343,8 @@ const OTROS = [
 // aparecido con gramos usados > 0 en el costeo.
 const INGREDIENTES = [
   { key: 'atun', label: 'Atún', price: 65.90, protein: 46, carbs: 0, fat: 2, fiber: 0, weight: 200 },
-  { key: 'salmon', label: 'Salmón', price: 102.80, protein: 0, carbs: 0, fat: 0, fiber: 0, weight: 200 },
-  { key: 'camaron', label: 'Camarón', price: 36.80, protein: 0, carbs: 0, fat: 0, fiber: 0, weight: 200 },
+  { key: 'salmon', label: 'Salmón', price: 102.80, protein: 40, carbs: 0, fat: 26, fiber: 0, weight: 200 },
+  { key: 'camaron', label: 'Camarón', price: 36.80, protein: 46, carbs: 0.4, fat: 3.4, fiber: 0, weight: 200 },
   { key: 'arroz', label: 'Arroz blanco', price: 1.22, protein: 4.05, carbs: 42, fat: 0.45, fiber: 0.6, weight: 150 },
   { key: 'chile_serrano', label: 'Chile serrano', price: 0.94, protein: 0.3, carbs: 1.05, fat: 0.06, fiber: 0.555, weight: 15 },
   { key: 'aguacate', label: 'Aguacate', price: 10.66, protein: 2.6, carbs: 11.7, fat: 19.5, fiber: 8.71, weight: 130 },
@@ -1231,6 +1249,33 @@ function computeStaffGroups() {
 // ---------------------------------------------------------------------
 // Cobro real (PayPal, sin backend)
 // ---------------------------------------------------------------------
+
+// La ventanita/tarjeta de PayPal (la que aparece para iniciar sesión o
+// pagar) no sabe nada del "notch"/Dynámic Island del iPhone — dibuja su
+// propia X para cerrar pegada al borde de ARRIBA de lo que ella cree que
+// es la pantalla completa. El problema es que nuestro <meta viewport>
+// tiene "viewport-fit=cover" (lo necesitamos para que el resto de la
+// app se vea bien detrás del notch), y eso hace que "la pantalla
+// completa" para PayPal empiece DEBAJO del notch/reloj/batería — ahí
+// su X queda escondida justo detrás de esa zona, casi imposible de
+// tocar bien. Por eso mismo se ve "pegada" al reloj en las capturas.
+//
+// La solución: mientras se muestra el botón/ventanita de PayPal,
+// quitamos por un momento el "viewport-fit=cover" (así PayPal dibuja su
+// X más abajo, en zona segura y tocable) y lo regresamos apenas termina
+// el pago (aprobado, cancelado o con error) para que el resto de la app
+// se siga viendo bien como siempre.
+function ajustarViewportParaPayPal(activo) {
+  const meta = document.querySelector('meta[name="viewport"]');
+  if (!meta) return;
+  meta.setAttribute(
+    'content',
+    activo
+      ? 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no'
+      : 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
+  );
+}
+
 function mountPayPalButton(amount) {
   const container = document.getElementById('paypal-button-container');
   if (!container) return;
@@ -1243,6 +1288,9 @@ function mountPayPalButton(amount) {
 
   paypal.Buttons({
     style: { layout: 'vertical', color: 'gold', shape: 'pill', label: 'pay' },
+    onClick: function () {
+      ajustarViewportParaPayPal(true);
+    },
     createOrder: function (data, actions) {
       return actions.order.create({
         purchase_units: [{
@@ -1252,6 +1300,7 @@ function mountPayPalButton(amount) {
       });
     },
     onApprove: function (data, actions) {
+      ajustarViewportParaPayPal(false);
       return actions.order.capture().then(function (details) {
         setState({ screen: 'pagoOk', lastPaymentId: details.id, paymentError: '' });
         if (state.authToken) {
@@ -1264,9 +1313,11 @@ function mountPayPalButton(amount) {
       });
     },
     onCancel: function () {
+      ajustarViewportParaPayPal(false);
       setState({ paymentError: 'Cancelaste el pago. Puedes intentarlo de nuevo cuando quieras.' });
     },
     onError: function (err) {
+      ajustarViewportParaPayPal(false);
       console.error('Error de PayPal:', err);
       setState({ paymentError: 'Hubo un problema al procesar tu pago. Intenta de nuevo.' });
     }
@@ -2452,7 +2503,12 @@ function renderPago() {
         <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;width:100%;box-sizing:border-box;">
           ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
           <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">Agrega al menos un platillo a tu semana para poder pagar.</span>
-        </div>` : `
+        </div>` : appInstalada() ? `
+        <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;width:100%;box-sizing:border-box;">
+          ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
+          <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">Así, abierta como ícono en tu pantalla de inicio, el pago con PayPal se queda atorado (es una limitación de Apple, no un error de la app). Abre este mismo enlace en Safari normal para pagar sin problema — el resto de la app la puedes seguir usando como ícono sin ningún problema.</span>
+        </div>
+        <a href="${esc(location.href)}" target="_blank" rel="noopener" class="pill-btn" style="text-align:center;">Abrir en Safari para pagar</a>` : `
         <div id="paypal-button-container" style="width:100%;"></div>
         <p style="margin:0;font-size:11px;line-height:1.4;color:#9AA096;text-align:center;">Acepta PayPal, tarjeta de crédito y tarjeta de débito — procesado por PayPal, se te cobrará de verdad al confirmar.</p>`}
       </div>
@@ -2737,6 +2793,15 @@ function render() {
   const navEl = document.getElementById('nav');
   const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth' && state.screen !== 'perfilInfo' && state.screen !== 'forgot' && state.screen !== 'reset' && state.screen !== 'landing' && state.screen !== 'adminLogin' && state.screen !== 'admin' && state.screen !== 'offline' && state.screen !== 'staffLogin' && state.screen !== 'staff';
 
+  // Colchón de seguridad: si por lo que sea (por ejemplo, si le da
+  // "Cancelar" desde la propia app en vez de cancelar dentro de la
+  // ventanita de PayPal) se sale de la pantalla de pago sin que se haya
+  // llamado a ajustarViewportParaPayPal(false), aquí se restaura solo,
+  // para que el "viewport-fit=cover" nunca se quede apagado de más.
+  if (state.screen !== 'pago' && typeof ajustarViewportParaPayPal === 'function') {
+    ajustarViewportParaPayPal(false);
+  }
+
   let html = '';
   if (state.screen === 'landing') html = renderLanding();
   else if (state.screen === 'auth') html = renderAuth();
@@ -2776,7 +2841,11 @@ function render() {
     const diasConPedido = computeDiasConPedido();
     const { total, complete } = computeWeekTotalNumber(diasConPedido);
     guardarPedidoBackend(total);
-    if (complete && total > 0) {
+    // No se monta el botón de PayPal si la app está abierta como ícono
+    // instalado (ver appInstalada más arriba) — en ese caso renderPago()
+    // ya muestra el aviso de "Abrir en Safari para pagar" en vez del
+    // botón, así que aquí no hay ni contenedor donde montarlo.
+    if (complete && total > 0 && !appInstalada()) {
       mountPayPalButton(total);
     }
   }
