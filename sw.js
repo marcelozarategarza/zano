@@ -10,13 +10,12 @@
 // admin): esas llamadas siempre van a la red, para no mostrar nunca datos
 // viejos como si fueran reales.
 
-// v19: index.html cambió otra vez — los íconos y texto de la barra
-// (Inicio/Menú/Mi semana/Perfil) ya no quedan pegados arriba; ahora se
-// recorren hacia abajo para quedar centrados en medio de TODA la barra
-// (incluyendo la franja reservada), no solo en la parte de arriba. En
-// la Mac no se nota nada (ahí la franja mide 0px). En el iPhone real
-// esto los acerca aún más a la zona del gesto de inicio.
-const CACHE_NAME = 'zano-shell-v19';
+// v20: index.html cambió otra vez — la franja reservada se redujo OTRO
+// 1/4 más (ahora queda al 42.1875% de lo real, era 56.25%), pedido
+// explícitamente aceptando el riesgo. Los íconos siguen centrados en
+// medio de toda la barra (se ajustó el mismo cálculo para que el
+// centrado no se rompiera con el nuevo tamaño).
+const CACHE_NAME = 'zano-shell-v20';
 const APP_SHELL = [
   './',
   './index.html',
