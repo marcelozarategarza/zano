@@ -692,15 +692,36 @@ function loadOfflineSnapshot() {
   } catch (e) { return null; }
 }
 
+// Lunes de la semana que se está por armar/pagar — siempre el PRÓXIMO
+// lunes (nunca el de esta semana, ni siquiera si hoy mismo es lunes: ese
+// caso salta al lunes de en 7 días), porque el pedido es siempre para la
+// semana que todavía no empieza. Por eso esta fecha se va recalculando
+// sola cada vez que se abre o se refresca la app — nunca queda fija.
 function computeWeekStartISO() {
   const d = new Date();
   const day = d.getDay(); // 0 domingo .. 6 sábado (hora local)
-  const diff = (day === 0 ? -6 : 1) - day;
+  const diff = ((8 - day) % 7) || 7; // días que faltan para el próximo lunes
   const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() + diff);
   const yyyy = monday.getFullYear();
   const mm = String(monday.getMonth() + 1).padStart(2, '0');
   const dd = String(monday.getDate()).padStart(2, '0');
   return yyyy + '-' + mm + '-' + dd;
+}
+
+// "día/mes" (ej. "28/09") que le toca a un día de la semana (Lunes..Viernes)
+// dentro de la semana que empieza en weekStartISO (formato "AAAA-MM-DD",
+// siempre un lunes). Se usa para mostrar la fecha junto al nombre del día
+// en "Mi semana" y para que el panel de Admin y el de Cocina muestren
+// exactamente la misma fecha para cada pedido.
+function dayDateNum(weekStartISO, dia) {
+  if (!weekStartISO) return '';
+  const idx = DIAS.indexOf(dia);
+  if (idx < 0) return '';
+  const [y, m, d] = weekStartISO.split('-').map(Number);
+  const date = new Date(y, m - 1, d + idx);
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  return dd + '/' + mm;
 }
 
 function guardarPedidoBackend(totalPesos) {
@@ -1719,12 +1740,13 @@ function renderStaffList(rows, opciones) {
   if (rows.length === 0) {
     return `<p style="margin:0;font-size:13px;color:#9AA096;text-align:center;padding:24px 0;">Nada aquí por ahora.</p>`;
   }
+  const weekStartISO = state.staffData && state.staffData.weekStart;
   return `<div style="display:flex;flex-direction:column;gap:16px;">${DIAS.map((dia) => {
     const delDia = rows.filter((r) => r.dia === dia);
     if (delDia.length === 0) return '';
     return `
       <div style="display:flex;flex-direction:column;gap:8px;">
-        <span style="font-size:12px;font-weight:700;color:#6B7268;text-transform:uppercase;letter-spacing:0.3px;">${esc(dia)}</span>
+        <span style="font-size:12px;font-weight:700;color:#6B7268;text-transform:uppercase;letter-spacing:0.3px;">${esc(dia)} ${dayDateNum(weekStartISO, dia)}</span>
         <div style="display:flex;flex-direction:column;gap:8px;">
           ${delDia.map((r) => renderStaffRow(r, opciones)).join('')}
         </div>
@@ -1961,7 +1983,7 @@ function renderAdminCalendario(data) {
         return `
           <div class="card" style="padding:14px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:${entregas.length ? '8px' : '0'};">
-              <span style="font-size:13.5px;font-weight:700;color:#1F2420;">${dia}</span>
+              <span style="font-size:13.5px;font-weight:700;color:#1F2420;">${dia} ${dayDateNum(week.weekStart, dia)}</span>
               <span style="font-size:11px;color:#9AA096;">${entregas.length} entrega${entregas.length === 1 ? '' : 's'}</span>
             </div>
             ${entregas.map((e) => `
@@ -2258,6 +2280,7 @@ function renderMenuDetail() {
 // ---------------------------------------------------------------------
 function renderSemana() {
   const diasConPedido = computeDiasConPedido();
+  const weekStartISO = computeWeekStartISO();
   const wholeWeek = state.wholeWeek;
   const allDaysMatch = DIAS.every((d) => state.weekOrder[d] && state.weekOrder[d].name === (state.weekOrder['Lunes'] && state.weekOrder['Lunes'].name));
   const allWeekItem = allDaysMatch ? state.weekOrder['Lunes'] : null;
@@ -2292,7 +2315,7 @@ function renderSemana() {
           <div style="display:flex;align-items:center;gap:8px;">
             <button onclick='pickDay(${JSON.stringify(d.dia)})' class="card" style="flex:1;min-width:0;padding:14px;display:flex;align-items:center;justify-content:space-between;text-align:left;">
               <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
-                <span style="font-size:12px;color:#6B7268;">${d.dia}</span>
+                <span style="font-size:12px;color:#6B7268;">${d.dia} ${dayDateNum(weekStartISO, d.dia)}</span>
                 <span style="font-size:14px;font-weight:600;color:#1F2420;">${esc(d.label)}</span>
               </div>
               ${icon('chevronRight', { w: 18, h: 18 })}

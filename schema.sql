@@ -71,3 +71,18 @@ CREATE TABLE IF NOT EXISTS croissant_counts (
   count INTEGER NOT NULL DEFAULT 0,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Límite de intentos de contraseña (login de clientes, administración y
+-- cocina) — ver api/_throttle.js. "scope" distingue cuál login es
+-- ('login' | 'admin' | 'staff') e "identifier" es el correo (clientes) o la
+-- IP (admin/cocina, que solo tienen una contraseña compartida). Esta tabla
+-- también se crea sola desde el código la primera vez que hace falta, así
+-- que correr esta parte del archivo es un respaldo, no algo obligatorio.
+CREATE TABLE IF NOT EXISTS login_throttle (
+  scope TEXT NOT NULL,
+  identifier TEXT NOT NULL,
+  fail_count INTEGER NOT NULL DEFAULT 0,
+  last_fail_at TIMESTAMPTZ,
+  locked_until TIMESTAMPTZ,
+  PRIMARY KEY (scope, identifier)
+);

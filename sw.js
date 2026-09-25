@@ -10,12 +10,20 @@
 // admin): esas llamadas siempre van a la red, para no mostrar nunca datos
 // viejos como si fueran reales.
 
-// v22: index.html cambió otra vez — se cambió el Client ID de PayPal de
-// "sb" (modo de pruebas/sandbox) al Client ID real de LIVE de la cuenta
-// de negocio de ZANO. A partir de esta versión, cualquier pago que se
-// haga en la app es dinero real, ya no de mentiras. Sigue cobrando en
-// pesos mexicanos (MXN).
-const CACHE_NAME = 'zano-shell-v22';
+// v25: se corrigió cómo se calcula "la semana que se está armando" —
+// antes podía calcular un lunes que ya había pasado (por ejemplo, ver
+// "Lunes 21" un viernes, cuando esa semana casi ya se terminó). Ahora
+// siempre calcula el PRÓXIMO lunes que todavía no llega, recalculándolo
+// solo cada vez que se abre la app. También se cambió el formato de la
+// fecha junto a cada día, de solo "28" a "28/09" (día/mes), otra vez en
+// Mi semana, Admin y Cocina por igual.
+
+// v26: se revirtió el cambio de nombre a MAZANO — la app vuelve a
+// llamarse ZANO en todo (título, logo, badges, textos de correos,
+// iconos de pantalla de inicio). Se sube la versión del caché para que
+// los teléfonos que ya habían instalado la versión "MAZANO" bajen esta
+// actualización y dejen de mostrar el logo/nombre viejo.
+const CACHE_NAME = 'zano-shell-v26';
 const APP_SHELL = [
   './',
   './index.html',

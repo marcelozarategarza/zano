@@ -1,7 +1,7 @@
 {
   "name": "ZANO Admin",
   "short_name": "ZANO Admin",
-  "start_url": "/#admin",
+  "start_url": "/admin.html",
   "display": "standalone",
   "background_color": "#FAF8F3",
   "theme_color": "#FAF8F3",

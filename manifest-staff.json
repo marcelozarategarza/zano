@@ -1,7 +1,7 @@
 {
   "name": "ZANO Cocina",
   "short_name": "ZANO Cocina",
-  "start_url": "/#staff",
+  "start_url": "/staff.html",
   "display": "standalone",
   "background_color": "#FAF8F3",
   "theme_color": "#FAF8F3",
