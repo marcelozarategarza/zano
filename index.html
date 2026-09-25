@@ -206,7 +206,15 @@
     height: 2px;
     background: #FFFFFF;
   }
-  .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; color: #9AA096; }
+  /* Los íconos/texto de la barra estaban centrados solo dentro de la
+     parte de arriba (36px), dejando toda la franja reservada vacía
+     debajo, sin usar. Este "transform" los recorre hacia abajo la mitad
+     de esa franja, para que queden centrados en medio de TODA la barra
+     (36px + franja), no solo en la parte de arriba. En la Mac no se
+     nota nada (ahí la franja mide 0px). En el iPhone real, esto los
+     acerca aún más a la zona del gesto de inicio — ya se sabe y se
+     acepta el riesgo, pedido a propósito. */
+  .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; color: #9AA096; transform: translateY(calc(env(safe-area-inset-bottom, 0px) * 0.5625 / 2)); }
   .nav-item.active { color: var(--green); }
   .nav-item span { font-size: 10px; font-weight: 600; line-height: 1; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; }
