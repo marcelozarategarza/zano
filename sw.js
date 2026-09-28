@@ -71,7 +71,24 @@
 // 26g grasa) y Camarón (46g proteína, 0.4g carbos, 3.4g grasa) como
 // proteínas del Poke, tomados directo de la hoja de costeo. Atún no se
 // tocó.
-const CACHE_NAME = 'zano-shell-v37';
+
+// v38: se cambió por completo cómo se cobra. Antes, el botón de pagar
+// abría una ventanita/pestaña de PayPal encima de la app, y esa
+// ventanita se podía quedar atorada al cancelar (sobre todo con la app
+// agregada a la pantalla de inicio — los intentos de arreglarlo de las
+// versiones v35 y v36 no fueron suficientes). Ahora ya no hay ninguna
+// ventanita: al tocar "Pagar", el propio servidor crea la orden en
+// PayPal (nuevo api/paypal.js) y la app manda a la persona derechito a
+// la página segura de PayPal, con una navegación normal — igual que
+// abrir cualquier enlace. En cuanto termina de pagar o cancela, PayPal
+// regresa sola a la app, que confirma el cobro automáticamente. Esto
+// funciona igual en cualquier navegador, en incógnito, y también con la
+// app agregada a la pantalla de inicio. También se agregó Apple Pay
+// como opción de pago (en iPhone/iPad/Mac con Safari, cuando la cuenta
+// de PayPal de ZANO ya lo tenga habilitado) — si no está disponible,
+// simplemente no aparece ese botón y el de PayPal/tarjeta sigue
+// funcionando normal.
+const CACHE_NAME = 'zano-shell-v38';
 const APP_SHELL = [
   './',
   './index.html',
