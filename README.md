@@ -51,32 +51,40 @@ Si no quieres usar `git` desde la terminal:
 
 Si prefieres, puedes arrastrar la carpeta directo a [vercel.com](https://vercel.com) o [app.netlify.com/drop](https://app.netlify.com/drop) (sin cuenta de GitHub siquiera) y te dan una liga pública al instante.
 
-## Activar el cobro real (PayPal)
+## Cobro dentro de la app (PayPal) + Apple Pay
 
-La pantalla de Pagar ya cobra de verdad con PayPal — no es una simulación. Como la app sigue siendo solo archivos estáticos (sin servidor propio), usa la integración de PayPal que sí funciona sin backend: los botones de PayPal se generan directo en el navegador con el total real de tu semana.
+La pantalla de Pagar cobra de verdad con PayPal — no es una simulación. Ya usa tu Client ID de **Live** (cuenta real de negocio de ZANO), así que cualquier pago que se confirme en la app es dinero real, que llega a tu cuenta de PayPal Business.
 
-Ahora mismo el archivo trae el modo de pruebas activado (`client-id=sb`), que usa dinero falso — sirve para probar todo el flujo sin arriesgar nada. Para que cobre dinero de verdad:
+Desde la versión más reciente, pagar **ya no abre ninguna ventanita/pestaña de PayPal encima de la app** (eso era lo que a veces se quedaba atorado al cancelar, sobre todo con la app agregada a la pantalla de inicio). Ahora, al tocar "Pagar con PayPal o tarjeta", el propio servidor (`api/paypal.js`) crea la orden en PayPal y la app manda a la persona derechito a la página segura de PayPal — una navegación normal, como abrir cualquier enlace, no una ventana nueva. En cuanto la persona termina de pagar (o cancela), PayPal la regresa sola a la app, que confirma el cobro automáticamente. Esto necesita el backend (carpeta `api/`, ver más abajo la sección "Cuentas guardadas y correos automáticos") — sin él, la app sigue funcionando en modo local pero sin poder cobrar de verdad.
 
-1. Entra a [developer.paypal.com](https://developer.paypal.com) e inicia sesión con tu cuenta de PayPal Business (si no tienes una, créala primero en [paypal.com](https://paypal.com) — es gratis, solo pide tus datos y los de tu negocio para poder recibir el dinero).
-2. Ve a "Apps & Credentials", asegúrate de estar en modo **Live** (no Sandbox), y crea una app nueva (o usa la que viene por default).
-3. Copia el **Client ID** que te da ahí (es público, no es una contraseña — es seguro que esté visible en el código).
-4. Abre `index.html`, busca esta línea cerca del inicio del archivo:
+### 1. El "Secret" de PayPal (nuevo — solo para el servidor)
 
-```html
-<script src="https://www.paypal.com/sdk/js?client-id=sb&currency=MXN&intent=capture"></script>
-```
+Antes solo se usaba el Client ID (público, va en `index.html`). Ahora, para que el servidor pueda hablar con PayPal en tu nombre, también hace falta el **Secret** de esa misma app — este es privado, NUNCA va en `index.html` ni se sube a GitHub, solo se agrega como variable de entorno en Vercel.
 
-5. Cambia `sb` por tu Client ID real:
-
-```html
-<script src="https://www.paypal.com/sdk/js?client-id=TU_CLIENT_ID_AQUI&currency=MXN&intent=capture"></script>
-```
-
-6. Guarda, sube el cambio a GitHub (o vuelve a arrastrar el archivo), y listo — desde ese momento cada pago que se confirme en la app es un cobro real a la tarjeta o cuenta PayPal de quien esté pagando, y el dinero llega a tu cuenta de PayPal Business.
-
-**Importante sobre seguridad:** como no hay servidor, el monto a cobrar lo calcula el propio navegador de quien está pagando (a partir de los platillos que eligió) y se lo manda a PayPal directamente. Esto es válido y es la forma que PayPal ofrece oficialmente para cobrar sin backend, pero en teoría alguien muy técnico podría manipular ese monto desde las herramientas de desarrollador de su navegador antes de pagar. Para un negocio chico esto normalmente no es un problema real, pero si más adelante quieres blindarlo del todo (que el monto se calcule y verifique en un servidor, no en el navegador de quien paga), se puede agregar un pequeño backend gratuito — dime y lo armamos.
+1. Entra a [developer.paypal.com](https://developer.paypal.com) e inicia sesión con tu cuenta de PayPal Business.
+2. Ve a **Apps & Credentials**, asegúrate de estar en modo **Live** (no Sandbox, arriba a la derecha).
+3. Verás la lista de tus apps — dale clic al nombre de la app que ya usaste para conseguir el Client ID (la que está en `index.html`).
+4. En esa pantalla verás **Client ID** (el mismo que ya tienes) y, debajo, **Secret**, con un botón que dice **Show** (mostrarlo). Dale clic y cópialo (es una cadena larga de letras y números, parecida al Client ID pero distinta).
+5. En [vercel.com/dashboard](https://vercel.com/dashboard), entra a tu proyecto de ZANO → **Settings** → **Environment Variables**.
+6. Agrega una variable nueva: nombre `PAYPAL_SECRET`, valor lo que copiaste en el paso 4. Guarda.
+7. Ve a la pestaña **Deployments** y dale **Redeploy** al último despliegue (o simplemente sube cualquier archivo nuevo a GitHub — cualquiera de los dos hace que Vercel tome en cuenta la variable nueva).
 
 Si un platillo todavía tiene precio pendiente (`[PRECIO]`), la app no deja pagar esa semana hasta que se le asigne un precio real — para evitar cobrar de más o de menos por error.
+
+### 2. Apple Pay (opcional)
+
+Apple Pay aparece como un botón aparte, solo en iPhone/iPad/Mac con Safari, y solo si tu cuenta de PayPal ya lo tiene habilitado y tu dominio verificado. Si no completas estos pasos (o algo no aplica para tu cuenta), sencillamente ese botón nunca aparece — el botón normal de "Pagar con PayPal o tarjeta" sigue funcionando siempre, sin ningún problema.
+
+1. Entra a tu cuenta de PayPal Business normal (paypal.com, no developer.paypal.com) → **Configuración de la cuenta** → busca la sección de **Apple Pay** (a veces está dentro de "Preferencias del sitio web" o "Mis productos y servicios", el nombre exacto varía). Confírmame que ya la ves activada ahí (me dijiste que sí).
+2. Ahí mismo debe haber una opción para **verificar un dominio** para Apple Pay — te va a pedir el dominio de tu app (por ejemplo `zano-five.vercel.app`, o el dominio propio si ya tienes uno) y te va a dar un archivo para descargar, algo así: `apple-developer-merchantid-domain-association`.
+3. Ese archivo hay que subirlo a GitHub en una carpeta nueva llamada exactamente `.well-known` (con el punto al inicio), con ese mismo nombre de archivo, SIN ninguna extensión. Para crearlo con la misma técnica que ya usaste para la carpeta `images/`:
+   - En GitHub, dentro de tu repositorio, **Add file → Create new file**.
+   - En el cuadro de nombre, escribe exactamente: `.well-known/apple-developer-merchantid-domain-association`
+   - Abre el archivo que descargaste de PayPal con el Bloc de notas (o TextEdit en Mac) y copia TODO su contenido dentro del cuadro grande de GitHub.
+   - Dale **Commit changes**.
+4. Espera a que Vercel termine de desplegar ese cambio (1-2 minutos), y ya debería quedar verificado del lado de PayPal (a veces hay que regresar a esa misma pantalla de PayPal y darle "Verificar" otra vez).
+
+Si en algún momento el botón de Apple Pay no aparece o no funciona, la app no se rompe — solo revisamos estos pasos juntos con una captura de pantalla de lo que veas.
 
 ## Activar el envío automático del correo de "Ayuda" (EmailJS)
 
@@ -184,6 +192,6 @@ Mientras no completes estos pasos, la app sigue funcionando en modo local como h
 
 - Los 7 platillos de "Bebidas y postres" (Yogurt Griego, Bowl de Frutas, Postres y Snacks, Jugo Verde, Jugo de Naranja, Vampiro, Toronja) siguen con precio `[PRECIO]` — en cuanto me mandes su costeo los lleno.
 - **Aguacate**: quedó en $10.66 (el valor del costeo más reciente y completo del Poke, con 130g). Tu instrucción anterior había sido $12.30 — avísame si ese era un margen intencional o si nos quedamos con el $10.66 del costeo.
-- **Salmón y camarón** (como proteína del Poke) todavía no tienen macros propios (proteína/carbos/grasa/fibra en cero) — solo tienen precio. En cuanto tengas su costeo con gramos usados, los agrego.
+- **Cobro dentro de la app + Apple Pay**: el código ya está listo, pero falta que agregues `PAYPAL_SECRET` en Vercel (y, si quieres Apple Pay, verificar el dominio) — ver la sección de arriba "Cobro dentro de la app (PayPal) + Apple Pay".
 
 Cualquier ajuste de precios, macros o pantallas, mándamelo y actualizo el archivo.
