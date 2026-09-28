@@ -39,17 +39,27 @@
 <title>ZANO — App de pedidos</title>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <!--
-  Cobro real con PayPal (sin backend): el Client ID de abajo es público (va en el
-  navegador) y es seguro exponerlo — NUNCA pongas aquí un "Secret" de PayPal.
-  Este ya es el Client ID de LIVE (cuenta real de negocio de ZANO) — a partir de
-  aquí, cualquier pago que se haga en la app es dinero real, no de prueba.
+  Cobro real con PayPal: el Client ID de abajo es público (va en el navegador)
+  y es seguro exponerlo — NUNCA pongas aquí un "Secret" de PayPal. Este ya es
+  el Client ID de LIVE (cuenta real de negocio de ZANO) — a partir de aquí,
+  cualquier pago que se haga en la app es dinero real, no de prueba.
   "currency=MXN" cobra en pesos mexicanos.
-  "enable-funding=card" le dice a PayPal que muestre también el botón para pagar
-  con tarjeta de crédito/débito sin necesitar cuenta de PayPal — los datos de la
-  tarjeta los captura y procesa PayPal directamente (nunca pasan por nuestro
-  servidor ni por nuestra base de datos).
+
+  Desde ahora el botón principal de pago YA NO usa este SDK para dibujar su
+  propio botón (eso era lo que abría la ventanita/pestaña que se quedaba
+  atorada) — ese botón ahora es uno normal de la app que manda a la persona
+  derechito a la página de pago de PayPal (ver iniciarPagoPayPal() más abajo
+  y api/paypal.js). Este script solo sigue haciendo falta para el botón de
+  Apple Pay ("components=applepay"), que si sí usa el SDK de PayPal en el
+  navegador para checar si el dispositivo/cuenta lo soportan.
 -->
-<script src="https://www.paypal.com/sdk/js?client-id=BAA9IQZnchv-jwAGGZMjpBuVQY8KCQfhR4Yu25NGnxPuGNzoT1alY1890JpmXWBVNS4A_Cbc1tY_2Kvh50&currency=MXN&intent=capture&enable-funding=card"></script>
+<script src="https://www.paypal.com/sdk/js?client-id=BAA9IQZnchv-jwAGGZMjpBuVQY8KCQfhR4Yu25NGnxPuGNzoT1alY1890JpmXWBVNS4A_Cbc1tY_2Kvh50&currency=MXN&intent=capture&components=applepay"></script>
+<!--
+  SDK de Apple para el botón de Apple Pay (junto con el de PayPal arriba).
+  Solo aplica en iPhone/iPad/Mac con Safari — en cualquier otro dispositivo
+  o navegador simplemente no aparece el botón de Apple Pay (nada se rompe).
+-->
+<script src="https://applepay.cdn-apple.com/jsapi/1.latest/apple-pay-sdk.js"></script>
 <!--
   Envío automático del correo de "Ayuda" (sin backend) con EmailJS: la Public Key
   es pública y es seguro exponerla — NUNCA pongas aquí una llave privada.
@@ -287,23 +297,6 @@ function ajustarAltoReal() {
   phone.style.height = alto + 'px';
 }
 
-// Detecta si la app se está viendo YA INSTALADA como ícono en la pantalla
-// de inicio (modo standalone), en vez de dentro de Safari/Chrome normal.
-//
-// Por qué importa esto para el pago: dentro de una app instalada así,
-// iOS no deja que el botón de PayPal abra su ventanita de pago normal
-// (la que se cierra sola con la X al cancelar o terminar). En vez de
-// eso, iOS manda esa ventanita a una pestaña nueva de Safari, SUELTA,
-// sin ninguna conexión con la app — por eso la X de PayPal no hace
-// nada: no tiene forma de avisarle a la app "ya cancelé" ni de
-// cerrarse sola, y la persona se queda atorada cambiando de pestaña a
-// mano. Esto es una limitación de Apple, no un error de esta app — así
-// que en vez de dejar que la gente se atore ahí, mejor se les avisa
-// ANTES de intentar pagar, con instrucciones de cómo pagar bien.
-function appInstalada() {
-  return (window.navigator.standalone === true) ||
-    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-}
 window.addEventListener('resize', ajustarAltoReal);
 window.addEventListener('orientationchange', () => setTimeout(ajustarAltoReal, 300));
 window.addEventListener('pageshow', ajustarAltoReal);
@@ -394,6 +387,7 @@ let state = {
   horarios: {},
   horarioPickerDay: null,
   paymentError: '',
+  payLoading: false,       // true justo mientras se crea la orden en el servidor y se manda a la página de PayPal
   lastPaymentId: null,
   perfilMetodosOpen: false,
   perfilInstitucionOpen: false,
@@ -1247,81 +1241,157 @@ function computeStaffGroups() {
 }
 
 // ---------------------------------------------------------------------
-// Cobro real (PayPal, sin backend)
+// Cobro real (PayPal dentro de la app + Apple Pay)
 // ---------------------------------------------------------------------
-
-// La ventanita/tarjeta de PayPal (la que aparece para iniciar sesión o
-// pagar) no sabe nada del "notch"/Dynámic Island del iPhone — dibuja su
-// propia X para cerrar pegada al borde de ARRIBA de lo que ella cree que
-// es la pantalla completa. El problema es que nuestro <meta viewport>
-// tiene "viewport-fit=cover" (lo necesitamos para que el resto de la
-// app se vea bien detrás del notch), y eso hace que "la pantalla
-// completa" para PayPal empiece DEBAJO del notch/reloj/batería — ahí
-// su X queda escondida justo detrás de esa zona, casi imposible de
-// tocar bien. Por eso mismo se ve "pegada" al reloj en las capturas.
 //
-// La solución: mientras se muestra el botón/ventanita de PayPal,
-// quitamos por un momento el "viewport-fit=cover" (así PayPal dibuja su
-// X más abajo, en zona segura y tocable) y lo regresamos apenas termina
-// el pago (aprobado, cancelado o con error) para que el resto de la app
-// se siga viendo bien como siempre.
-function ajustarViewportParaPayPal(activo) {
-  const meta = document.querySelector('meta[name="viewport"]');
-  if (!meta) return;
-  meta.setAttribute(
-    'content',
-    activo
-      ? 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no'
-      : 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
-  );
-}
+// Antes, el botón de pagar abría una ventanita/pestaña de PayPal encima de
+// la app (un "popup") — eso es justo lo que se quedaba atorado al cancelar,
+// sobre todo con la app agregada a la pantalla de inicio. Ahora ya no hay
+// ninguna ventanita: al tocar "Pagar", el propio servidor (api/paypal.js)
+// crea la orden y la app manda a la persona derechito a la página segura
+// de PayPal (una navegación normal, como abrir cualquier enlace). En
+// cuanto termina de pagar o cancela, PayPal la regresa sola aquí mismo —
+// eso se detecta al abrir la app con "?zpay=" en la dirección (ver más
+// abajo, cerca del arranque de la app) y ahí se confirma el pago.
 
-function mountPayPalButton(amount) {
-  const container = document.getElementById('paypal-button-container');
-  if (!container) return;
-  container.innerHTML = '';
-
-  if (typeof paypal === 'undefined' || !paypal.Buttons) {
-    container.innerHTML = '<p style="margin:0;font-size:12px;color:#B4472A;text-align:center;">No se pudo cargar PayPal (revisa tu conexión a internet, o que el Client ID en el &lt;head&gt; esté bien configurado).</p>';
+// Pide al servidor que cree la orden y, si todo sale bien, navega a la
+// página de PayPal para terminar de pagar. NO abre ninguna ventana nueva
+// (a propósito: eso es lo que se atoraba) — es una navegación normal, así
+// que funciona igual en cualquier navegador, en incógnito, y también con
+// la app agregada a la pantalla de inicio.
+function iniciarPagoPayPal() {
+  if (!state.authToken) {
+    setState({ paymentError: 'Necesitas iniciar sesión para pagar.' });
     return;
   }
+  const { total, complete } = computeWeekTotalNumber(computeDiasConPedido());
+  if (!complete || !(total > 0)) return;
 
-  paypal.Buttons({
-    style: { layout: 'vertical', color: 'gold', shape: 'pill', label: 'pay' },
-    onClick: function () {
-      ajustarViewportParaPayPal(true);
-    },
-    createOrder: function (data, actions) {
-      return actions.order.create({
-        purchase_units: [{
-          description: 'Pedido semanal ZANO',
-          amount: { value: amount.toFixed(2), currency_code: 'MXN' }
-        }]
-      });
-    },
-    onApprove: function (data, actions) {
-      ajustarViewportParaPayPal(false);
-      return actions.order.capture().then(function (details) {
-        setState({ screen: 'pagoOk', lastPaymentId: details.id, paymentError: '' });
-        if (state.authToken) {
-          apiFetch('/api/order-confirm', {
-            method: 'POST',
-            headers: { Authorization: 'Bearer ' + state.authToken },
-            body: { weekStart: computeWeekStartISO(), paymentId: details.id, totalCents: Math.round(amount * 100) }
-          }).then(() => loadOrderHistory()).catch(() => {});
-        }
-      });
-    },
-    onCancel: function () {
-      ajustarViewportParaPayPal(false);
-      setState({ paymentError: 'Cancelaste el pago. Puedes intentarlo de nuevo cuando quieras.' });
-    },
-    onError: function (err) {
-      ajustarViewportParaPayPal(false);
-      console.error('Error de PayPal:', err);
-      setState({ paymentError: 'Hubo un problema al procesar tu pago. Intenta de nuevo.' });
+  setState({ payLoading: true, paymentError: '' });
+  apiFetch('/api/paypal', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + state.authToken },
+    body: { action: 'create', weekStart: computeWeekStartISO(), totalCents: Math.round(total * 100) }
+  }).then((r) => {
+    if (r.ok && r.data && r.data.approveUrl) {
+      location.href = r.data.approveUrl;
+    } else {
+      setState({ payLoading: false, paymentError: (r.data && r.data.error) || 'No se pudo iniciar el pago con PayPal. Intenta de nuevo.' });
     }
-  }).render('#paypal-button-container');
+  }).catch(() => {
+    setState({ payLoading: false, paymentError: 'No se pudo conectar con PayPal. Revisa tu internet e intenta de nuevo.' });
+  });
+}
+
+// Se llama justo al regresar de la página de PayPal (o al terminar Apple
+// Pay), ya con la orden aprobada — confirma/cobra de verdad en el servidor
+// y marca el pedido como pagado (ver api/paypal.js, action=capture).
+function confirmarPagoPayPal(orderId, weekStart) {
+  const { total } = computeWeekTotalNumber(computeDiasConPedido());
+  apiFetch('/api/paypal', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + state.authToken },
+    body: { action: 'capture', orderId: orderId, weekStart: weekStart, totalCents: Math.round((total || 0) * 100) }
+  }).then((r) => {
+    if (r.ok && r.data && r.data.ok) {
+      setState({ screen: 'pagoOk', lastPaymentId: r.data.paymentId || orderId, paymentError: '', payLoading: false });
+      loadOrderHistory();
+    } else {
+      setState({ payLoading: false, paymentError: (r.data && r.data.error) || 'No pudimos confirmar tu pago con PayPal. Si ya viste el cargo en tu cuenta, contáctanos.' });
+    }
+  }).catch(() => {
+    setState({ payLoading: false, paymentError: 'No pudimos confirmar tu pago (sin conexión). Si ya te cobraron, contáctanos.' });
+  });
+}
+
+// Apple Pay, a través del mismo PayPal (solo en iPhone/iPad/Mac con
+// Safari, y solo si la cuenta de PayPal de ZANO ya tiene Apple Pay
+// habilitado y el dominio verificado — ver README). Si algo de eso falta,
+// sencillamente no aparece este botón y la persona paga con el de arriba
+// (PayPal/tarjeta) sin ningún problema — nunca truena la pantalla.
+function montarApplePayBoton(amount) {
+  const container = document.getElementById('applepay-button-container');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!window.ApplePaySession || !ApplePaySession.canMakePayments()) return;
+  if (typeof paypal === 'undefined' || !paypal.Applepay) return;
+
+  const applepay = paypal.Applepay();
+  applepay.config().then((cfg) => {
+    if (!cfg || !cfg.isEligible) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Pagar con  Apple Pay';
+    btn.className = 'pill-btn';
+    btn.style.background = '#000000';
+    btn.style.color = '#FFFFFF';
+    btn.style.width = '100%';
+    btn.onclick = function () { iniciarApplePay(cfg, amount); };
+    container.appendChild(btn);
+  }).catch(() => { /* si falla, no mostramos el botón — el de arriba sigue funcionando normal */ });
+}
+
+function iniciarApplePay(cfg, amount) {
+  if (!state.authToken) {
+    setState({ paymentError: 'Necesitas iniciar sesión para pagar.' });
+    return;
+  }
+  const applepay = paypal.Applepay();
+  const request = {
+    countryCode: cfg.countryCode,
+    currencyCode: 'MXN',
+    merchantCapabilities: cfg.merchantCapabilities,
+    supportedNetworks: cfg.supportedNetworks,
+    requiredBillingContactFields: ['name', 'email'],
+    total: { label: 'ZANO', amount: amount.toFixed(2), type: 'final' }
+  };
+  const session = new ApplePaySession(4, request);
+
+  session.onvalidatemerchant = function (event) {
+    applepay.validateMerchant({ validationUrl: event.validationURL, displayName: 'ZANO' })
+      .then((result) => session.completeMerchantValidation(result.merchantSession))
+      .catch((err) => {
+        console.error('Apple Pay — error validando comercio:', err);
+        session.abort();
+        setState({ paymentError: 'No se pudo iniciar Apple Pay. Usa el botón de PayPal/tarjeta de arriba.' });
+      });
+  };
+
+  session.onpaymentauthorized = function (event) {
+    const weekStart = computeWeekStartISO();
+    apiFetch('/api/paypal', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + state.authToken },
+      body: { action: 'create', weekStart: weekStart, totalCents: Math.round(amount * 100) }
+    }).then((r) => {
+      if (!r.ok || !r.data || !r.data.orderId) {
+        session.completePayment(ApplePaySession.STATUS_FAILURE);
+        setState({ paymentError: (r.data && r.data.error) || 'No se pudo iniciar el pago.' });
+        return;
+      }
+      applepay.confirmOrder({
+        orderId: r.data.orderId,
+        token: event.payment.token,
+        billingContact: event.payment.billingContact
+      }).then(() => {
+        session.completePayment(ApplePaySession.STATUS_SUCCESS);
+        confirmarPagoPayPal(r.data.orderId, weekStart);
+      }).catch((err) => {
+        console.error('Apple Pay — error confirmando orden:', err);
+        session.completePayment(ApplePaySession.STATUS_FAILURE);
+        setState({ paymentError: 'No se pudo confirmar el pago con Apple Pay. Usa el botón de PayPal/tarjeta de arriba.' });
+      });
+    }).catch(() => {
+      session.completePayment(ApplePaySession.STATUS_FAILURE);
+      setState({ paymentError: 'No se pudo conectar con el servidor. Intenta de nuevo.' });
+    });
+  };
+
+  session.oncancel = function () {
+    setState({ paymentError: '' });
+  };
+
+  session.begin();
 }
 
 function logout() {
@@ -2503,14 +2573,10 @@ function renderPago() {
         <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;width:100%;box-sizing:border-box;">
           ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
           <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">Agrega al menos un platillo a tu semana para poder pagar.</span>
-        </div>` : appInstalada() ? `
-        <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;width:100%;box-sizing:border-box;">
-          ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
-          <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">Así, abierta como ícono en tu pantalla de inicio, el pago con PayPal se queda atorado (es una limitación de Apple, no un error de la app). Abre este mismo enlace en Safari normal para pagar sin problema — el resto de la app la puedes seguir usando como ícono sin ningún problema.</span>
-        </div>
-        <a href="${esc(location.href)}" target="_blank" rel="noopener" class="pill-btn" style="text-align:center;">Abrir en Safari para pagar</a>` : `
-        <div id="paypal-button-container" style="width:100%;"></div>
-        <p style="margin:0;font-size:11px;line-height:1.4;color:#9AA096;text-align:center;">Acepta PayPal, tarjeta de crédito y tarjeta de débito — procesado por PayPal, se te cobrará de verdad al confirmar.</p>`}
+        </div>` : `
+        <button onclick="iniciarPagoPayPal()" ${state.payLoading ? 'disabled' : ''} class="pill-btn" style="width:100%;text-align:center;opacity:${state.payLoading ? '0.6' : '1'};">${state.payLoading ? 'Conectando con PayPal…' : 'Pagar con PayPal o tarjeta'}</button>
+        <div id="applepay-button-container" style="width:100%;"></div>
+        <p style="margin:0;font-size:11px;line-height:1.4;color:#9AA096;text-align:center;">Te lleva a la página segura de PayPal para terminar tu pago (con tu cuenta de PayPal o con tarjeta de crédito/débito, sin necesitar cuenta) — se te cobrará de verdad al confirmar, y en cuanto termines regresas aquí mismo solo.</p>`}
       </div>
     </div>
   `;
@@ -2567,7 +2633,8 @@ function renderPerfil() {
 
   const metodosPago = [
     { label: 'Tarjeta de crédito o débito', detalle: 'Vía PayPal, al momento de pagar' },
-    { label: 'PayPal', detalle: 'Con tu cuenta o saldo de PayPal' }
+    { label: 'PayPal', detalle: 'Con tu cuenta o saldo de PayPal' },
+    { label: 'Apple Pay', detalle: 'En iPhone/iPad/Mac con Safari, cuando esté disponible' }
   ];
 
   const proxima = computeProximaRecoleccion();
@@ -2793,15 +2860,6 @@ function render() {
   const navEl = document.getElementById('nav');
   const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth' && state.screen !== 'perfilInfo' && state.screen !== 'forgot' && state.screen !== 'reset' && state.screen !== 'landing' && state.screen !== 'adminLogin' && state.screen !== 'admin' && state.screen !== 'offline' && state.screen !== 'staffLogin' && state.screen !== 'staff';
 
-  // Colchón de seguridad: si por lo que sea (por ejemplo, si le da
-  // "Cancelar" desde la propia app en vez de cancelar dentro de la
-  // ventanita de PayPal) se sale de la pantalla de pago sin que se haya
-  // llamado a ajustarViewportParaPayPal(false), aquí se restaura solo,
-  // para que el "viewport-fit=cover" nunca se quede apagado de más.
-  if (state.screen !== 'pago' && typeof ajustarViewportParaPayPal === 'function') {
-    ajustarViewportParaPayPal(false);
-  }
-
   let html = '';
   if (state.screen === 'landing') html = renderLanding();
   else if (state.screen === 'auth') html = renderAuth();
@@ -2841,12 +2899,12 @@ function render() {
     const diasConPedido = computeDiasConPedido();
     const { total, complete } = computeWeekTotalNumber(diasConPedido);
     guardarPedidoBackend(total);
-    // No se monta el botón de PayPal si la app está abierta como ícono
-    // instalado (ver appInstalada más arriba) — en ese caso renderPago()
-    // ya muestra el aviso de "Abrir en Safari para pagar" en vez del
-    // botón, así que aquí no hay ni contenedor donde montarlo.
-    if (complete && total > 0 && !appInstalada()) {
-      mountPayPalButton(total);
+    // El botón principal de PayPal/tarjeta ya es un botón normal de la
+    // app (ver renderPago) — no hay nada que "montar" para ese. Aquí solo
+    // se checa si se puede mostrar el botón de Apple Pay (aparece solo,
+    // si el dispositivo/cuenta lo soportan).
+    if (complete && total > 0) {
+      montarApplePayBoton(total);
     }
   }
 
@@ -2969,6 +3027,52 @@ if (location.hash === '#admin') {
 } else if (location.hash === '#staff') {
   state = { ...state, screen: 'staffLogin' };
 }
+
+// Regreso desde la página de pago de PayPal (ver api/paypal.js e
+// iniciarPagoPayPal más arriba): en vez de una ventanita que se podía
+// quedar atorada, ahora el pago manda a la página de verdad de PayPal, y
+// ella sola regresa aquí cuando la persona termina o cancela — eso se
+// detecta con "zpay" en la dirección ("1" = aprobado, falta cobrar/
+// confirmar; "0" = canceló). Se quita de la dirección en cuanto se lee,
+// para que recargar la página no intente cobrar dos veces.
+(function () {
+  const params = new URLSearchParams(location.search);
+  const zpay = params.get('zpay');
+  if (zpay !== '1' && zpay !== '0') return;
+  const weekStartVuelta = params.get('week') || '';
+  const orderId = params.get('token') || '';
+  history.replaceState(null, '', location.pathname + location.hash);
+
+  // Recupera el pedido (platillos/horarios/plantel) que ya se había
+  // guardado solo en este teléfono justo antes de mandar a pagar (se
+  // guarda solo, en cada cambio — ver saveOfflineSnapshot), para que la
+  // pantalla no se vea vacía después de la recarga que implica ir y
+  // volver de la página de PayPal.
+  const snap = loadOfflineSnapshot();
+  if (snap && (!weekStartVuelta || snap.weekStart === weekStartVuelta)) {
+    state = {
+      ...state,
+      weekOrder: snap.weekOrder || {},
+      horarios: snap.horarios || {},
+      plantel: state.plantel || snap.plantel || null
+    };
+  }
+
+  if (zpay === '0') {
+    state = { ...state, screen: 'pago', paymentError: 'Cancelaste el pago. Puedes intentarlo de nuevo cuando quieras.' };
+  } else if (orderId && weekStartVuelta && state.authToken) {
+    state = { ...state, screen: 'pago', payLoading: true, paymentError: '' };
+  } else {
+    state = { ...state, screen: 'pago', paymentError: 'No pudimos confirmar tu pago (faltó información al regresar de PayPal). Si ya te cobraron, contáctanos.' };
+  }
+
+  // La confirmación real (cobrar y marcar el pedido pagado) se dispara
+  // después de la primera pantalla ya pintada, no aquí — así el usuario
+  // ve de inmediato "Conectando..." en vez de una pantalla en blanco.
+  if (zpay === '1' && orderId && weekStartVuelta && state.authToken) {
+    setTimeout(() => confirmarPagoPayPal(orderId, weekStartVuelta), 0);
+  }
+})();
 
 render();
 
