@@ -1082,15 +1082,18 @@ function exportarExcelAdmin() {
   (data.costs || []).forEach((c) => { costsPorSemana[c.weekStart] = c; });
 
   const metaRecuperacionCents = data.metaRecuperacionCents || 0;
+  const cumMapExcel = cumulativePedidosPorSemana(data.weeks || []);
 
   const resumenRows = (data.weeks || []).map((w) => {
     const c = costsPorSemana[w.weekStart];
     const otrosGastosCents = c ? c.otrosGastosCents : 0;
     const gastosCents = gastosAutoCents(w) + otrosGastosCents;
+    const pedidosAcumulados = cumMapExcel[w.weekStart] || 0;
     return {
       'Semana': fmtWeekLabel(w.weekStart),
       'Ventas': (w.ventasCents || 0) / 100,
       'Pedidos pagados': w.pedidosPagados || 0,
+      'Pedidos pagados acumulados': pedidosAcumulados,
       'Ingredientes': (w.ingredientesAutoCents || 0) / 100,
       'Sueldo del jefe': (w.sueldoJefeCents || 0) / 100,
       'Sueldo de los cocineros': (w.sueldoCocinerosCents || 0) / 100,
@@ -1098,7 +1101,7 @@ function exportarExcelAdmin() {
       'Pago de inversión': (w.pagoInversionCents || 0) / 100,
       'Otros gastos': otrosGastosCents / 100,
       'Ganancia bruta': ((w.ventasCents || 0) - gastosCents) / 100,
-      'Ganancia neta': (metaRecuperacionCents - (20 * 100 * (w.pedidosPagados || 0))) / 100
+      'Ganancia neta (acumulada)': ((20 * 100 * pedidosAcumulados) - metaRecuperacionCents) / 100
     };
   });
 
@@ -1124,7 +1127,7 @@ function exportarExcelAdmin() {
   const referenciaRows = [{
     'Valor de referencia (para Ganancia neta)': metaRecuperacionCents / 100,
     'Precio del croissant': (data.croissantPriceCents || 0) / 100,
-    'Nota': 'Ganancia neta = valor de referencia − $20 por cada pedido pagado de esa semana. Las ventas de croissants están aparte, no se suman a Ganancia bruta/neta.'
+    'Nota': 'Ganancia neta = $20 por cada pedido pagado ACUMULADO de todas las semanas − valor de referencia. Las ventas de croissants están aparte, no se suman a Ganancia bruta/neta.'
   }];
 
   const croissantsRows = (data.croissants || []).map((c) => ({
@@ -2065,6 +2068,22 @@ function gastosAutoCents(w) {
     + (w.comisionInstitutoCents || 0) + (w.pagoInversionCents || 0);
 }
 
+// Para Ganancia neta: cuenta los pedidos pagados ACUMULADOS desde la semana
+// más antigua disponible hasta cada semana (incluyéndola) — no solo los de
+// esa semana. Ojo: solo alcanza a contar semanas de los últimos ~6 meses
+// (el mismo límite que ya trae api/admin-data.js), no "desde que empezó el
+// negocio" si lleva más tiempo abierto que eso.
+function cumulativePedidosPorSemana(weeks) {
+  const map = {};
+  const ordenAsc = [...weeks].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+  let acumulado = 0;
+  for (const w of ordenAsc) {
+    acumulado += w.pedidosPagados || 0;
+    map[w.weekStart] = acumulado;
+  }
+  return map;
+}
+
 function renderAdminWeekPicker(data) {
   const weeks = data.weeks || [];
   if (weeks.length === 0) {
@@ -2089,7 +2108,9 @@ function renderAdminResumen(data) {
   const gastosSemana = (week ? gastosAutoCents(week) : 0) + otrosGastosCents;
   const bruta = ventas - gastosSemana;
   const metaRecuperacionCents = data.metaRecuperacionCents || 0;
-  const neta = week ? (metaRecuperacionCents - (20 * 100 * week.pedidosPagados)) : metaRecuperacionCents;
+  const cumMap = cumulativePedidosPorSemana(weeks);
+  const pedidosAcumulados = week ? (cumMap[week.weekStart] || 0) : 0;
+  const neta = (20 * 100 * pedidosAcumulados) - metaRecuperacionCents;
 
   const ventasTotalAllTime = weeks.reduce((s, w) => s + w.ventasCents, 0);
   const pedidosTotalAllTime = weeks.reduce((s, w) => s + w.pedidosPagados, 0);
@@ -2110,7 +2131,11 @@ function renderAdminResumen(data) {
         <div class="admin-stat"><div class="val">${fmtMoney(ventas)}</div><div class="lbl">Ventas de la semana</div></div>
         <div class="admin-stat"><div class="val">${week.pedidosPagados}</div><div class="lbl">Pedidos pagados</div></div>
         <div class="admin-stat"><div class="val" style="color:${bruta >= 0 ? '#2B5D3F' : '#B4472A'};">${fmtMoney(bruta)}</div><div class="lbl">Ganancia bruta</div></div>
-        <div class="admin-stat"><div class="val" style="color:${neta >= 0 ? '#2B5D3F' : '#B4472A'};">${fmtMoney(neta)}</div><div class="lbl">Ganancia neta</div></div>
+        <div class="admin-stat"><div class="val" style="color:${neta >= 0 ? '#2B5D3F' : '#B4472A'};">${fmtMoney(neta)}</div><div class="lbl">Ganancia neta (acumulada)</div></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:flex-start;background:#F0ECE0;border-radius:12px;padding:12px 14px;">
+        ${icon('info', { w: 16, h: 16, stroke: '#6B7268', sw: 1.8 })}
+        <span style="font-size:12px;line-height:1.4;color:#6B7268;">Ganancia neta = $20 × pedidos pagados ACUMULADOS hasta esta semana − tu valor de referencia. Va sumando pedidos de todas las semanas (no solo de esta) hasta alcanzar tu valor de referencia; por eso hoy sale negativa: significa que todavía te faltan pedidos para llegar a ese valor. Pedidos acumulados hasta esta semana: ${pedidosAcumulados}.</span>
       </div>
       ${!cost ? `
       <div style="display:flex;gap:8px;align-items:flex-start;background:#F0ECE0;border-radius:12px;padding:12px 14px;">
@@ -2255,7 +2280,7 @@ function renderAdminGastos(data) {
     <div style="display:flex;flex-direction:column;gap:14px;">
       <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:6px;">
         <div style="font-size:11.5px;font-weight:700;color:#6B7268;">VALOR DE REFERENCIA (Ganancia neta)</div>
-        <span style="font-size:11.5px;line-height:1.4;color:#6B7268;">Es un solo valor fijo — no cambia por semana. Ganancia neta = este valor − $20 por cada pedido pagado de la semana.</span>
+        <span style="font-size:11.5px;line-height:1.4;color:#6B7268;">Es un solo valor fijo — no cambia por semana. Ganancia neta = $20 por cada pedido pagado ACUMULADO de todas las semanas − este valor. Va sumando pedidos con el tiempo; mientras no junte suficientes pedidos para llegar a este valor, Ganancia neta sale negativa (normal).</span>
         <input id="admin-meta-recuperacion" type="number" inputmode="decimal" step="0.01" min="0" value="${metaVal}" placeholder="0.00">
         <button onclick="saveAdminMeta()" class="pill-btn" ${state.adminMetaSaving ? 'disabled' : ''}>${state.adminMetaSaving ? 'Guardando…' : 'Guardar valor de referencia'}</button>
         ${state.adminMetaSaved ? `<div style="display:flex;align-items:center;gap:6px;justify-content:center;">${icon('check', { w: 14, h: 14, stroke: '#2B5D3F', sw: 2.2 })}<span style="font-size:12px;color:#2B5D3F;">Guardado.</span></div>` : ''}
@@ -2304,36 +2329,54 @@ function renderAdminGastos(data) {
 function renderAdminHistorial(data) {
   const weeks = data.weeks || [];
   const costs = data.costs || [];
+  const croissants = data.croissants || [];
   const metaRecuperacionCents = data.metaRecuperacionCents || 0;
+  const cumMap = cumulativePedidosPorSemana(weeks);
 
-  if (weeks.length === 0) {
-    return `<p style="margin:0;font-size:12.5px;color:#9AA096;text-align:center;padding:24px 0;">Todavía no hay semanas con pedidos pagados.</p>`;
+  if (weeks.length === 0 && croissants.length === 0) {
+    return `<p style="margin:0;font-size:12.5px;color:#9AA096;text-align:center;padding:24px 0;">Todavía no hay semanas con pedidos pagados ni croissants vendidos.</p>`;
   }
 
   return `
-    <div style="display:flex;flex-direction:column;gap:14px;">
-      <span style="font-size:11.5px;line-height:1.4;color:#6B7268;">Historial de todas las semanas con pedidos pagados (últimos 6 meses), de la más reciente a la más antigua.</span>
-      ${weeks.map((w) => {
-        const cost = costs.find((c) => c.weekStart === w.weekStart) || null;
-        const otrosGastosCents = cost ? cost.otrosGastosCents : 0;
-        const gastosSemana = gastosAutoCents(w) + otrosGastosCents;
-        const bruta = w.ventasCents - gastosSemana;
-        const neta = metaRecuperacionCents - (20 * 100 * w.pedidosPagados);
-        const croissantWeek = (data.croissants || []).find((c) => c.weekStart === w.weekStart) || null;
-        return `
-          <div class="card" style="padding:14px;">
-            <div style="font-size:13.5px;font-weight:700;color:#1F2420;margin-bottom:10px;">${esc(fmtWeekLabel(w.weekStart))}</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-              <div class="admin-stat"><div class="val">${fmtMoney(w.ventasCents)}</div><div class="lbl">Ventas</div></div>
-              <div class="admin-stat"><div class="val">${w.pedidosPagados}</div><div class="lbl">Pedidos pagados</div></div>
-              <div class="admin-stat"><div class="val" style="color:${bruta >= 0 ? '#2B5D3F' : '#B4472A'};">${fmtMoney(bruta)}</div><div class="lbl">Ganancia bruta</div></div>
-              <div class="admin-stat"><div class="val" style="color:${neta >= 0 ? '#2B5D3F' : '#B4472A'};">${fmtMoney(neta)}</div><div class="lbl">Ganancia neta</div></div>
+    <div style="display:flex;flex-direction:column;gap:20px;">
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div style="font-size:11.5px;font-weight:700;color:#6B7268;">VENTAS EN LÍNEA (con pedido previo)</div>
+        ${weeks.length === 0 ? `<p style="margin:0;font-size:12.5px;color:#9AA096;">Todavía no hay semanas con pedidos pagados.</p>` : weeks.map((w) => {
+          const cost = costs.find((c) => c.weekStart === w.weekStart) || null;
+          const otrosGastosCents = cost ? cost.otrosGastosCents : 0;
+          const gastosSemana = gastosAutoCents(w) + otrosGastosCents;
+          const bruta = w.ventasCents - gastosSemana;
+          const pedidosAcumulados = cumMap[w.weekStart] || 0;
+          const neta = (20 * 100 * pedidosAcumulados) - metaRecuperacionCents;
+          return `
+            <div class="card" style="padding:14px;">
+              <div style="font-size:13.5px;font-weight:700;color:#1F2420;margin-bottom:10px;">${esc(fmtWeekLabel(w.weekStart))}</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <div class="admin-stat"><div class="val">${fmtMoney(w.ventasCents)}</div><div class="lbl">Ventas</div></div>
+                <div class="admin-stat"><div class="val">${w.pedidosPagados}</div><div class="lbl">Pedidos pagados</div></div>
+                <div class="admin-stat"><div class="val" style="color:${bruta >= 0 ? '#2B5D3F' : '#B4472A'};">${fmtMoney(bruta)}</div><div class="lbl">Ganancia bruta</div></div>
+                <div class="admin-stat"><div class="val" style="color:${neta >= 0 ? '#2B5D3F' : '#B4472A'};">${fmtMoney(neta)}</div><div class="lbl">Ganancia neta (acum. a esa semana)</div></div>
+              </div>
+              <div style="margin-top:8px;font-size:11px;color:#9AA096;">Pedidos pagados acumulados hasta esta semana: ${pedidosAcumulados}.</div>
+              ${!cost ? `<div style="margin-top:8px;font-size:11px;color:#9AA096;">Sin "Otros gastos" capturados esta semana.</div>` : ''}
             </div>
-            ${!cost ? `<div style="margin-top:8px;font-size:11px;color:#9AA096;">Sin "Otros gastos" capturados esta semana.</div>` : ''}
-            ${croissantWeek ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid #F0ECE0;font-size:11.5px;color:#6B7268;">Croissants (aparte): ${croissantWeek.totalQty} vendidos (${croissantWeek.efectivoQty} efectivo, ${croissantWeek.tarjetaQty} tarjeta) — ${fmtMoney(croissantWeek.totalCents)}</div>` : ''}
+          `;
+        }).join('')}
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div style="font-size:11.5px;font-weight:700;color:#6B7268;">VENTAS PRESENCIALES — CROISSANTS <span style="font-weight:400;color:#9AA096;">(sin pedido previo, viene de Cocina)</span></div>
+        ${croissants.length === 0 ? `<p style="margin:0;font-size:12.5px;color:#9AA096;">Todavía no hay croissants vendidos.</p>` : croissants.map((c) => `
+          <div class="card" style="padding:14px;">
+            <div style="font-size:13.5px;font-weight:700;color:#1F2420;margin-bottom:10px;">${esc(fmtWeekLabel(c.weekStart))}</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <div class="admin-stat"><div class="val">${c.efectivoQty}</div><div class="lbl">Vendidos en efectivo</div></div>
+              <div class="admin-stat"><div class="val">${c.tarjetaQty}</div><div class="lbl">Vendidos con tarjeta</div></div>
+              <div class="admin-stat" style="grid-column:1 / -1;"><div class="val">${fmtMoney(c.totalCents)}</div><div class="lbl">Ventas de croissants (${c.totalQty} en total)</div></div>
+            </div>
           </div>
-        `;
-      }).join('')}
+        `).join('')}
+      </div>
     </div>
   `;
 }
