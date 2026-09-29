@@ -51,46 +51,36 @@ Si no quieres usar `git` desde la terminal:
 
 Si prefieres, puedes arrastrar la carpeta directo a [vercel.com](https://vercel.com) o [app.netlify.com/drop](https://app.netlify.com/drop) (sin cuenta de GitHub siquiera) y te dan una liga pública al instante.
 
-## Cobro dentro de la app (PayPal) + Apple Pay
+## Cobro dentro de la app (Mercado Pago)
 
-La pantalla de Pagar cobra de verdad con PayPal — no es una simulación. Ya usa tu Client ID de **Live** (cuenta real de negocio de ZANO), así que cualquier pago que se confirme en la app es dinero real, que llega a tu cuenta de PayPal Business.
+La pantalla de Pagar cobra de verdad con Mercado Pago — no es una simulación. Antes usaba PayPal; se reemplazó por completo, así que cualquier pago que se confirme en la app es dinero real, que llega a tu cuenta de Mercado Pago.
 
-Desde la versión más reciente, pagar **ya no abre ninguna ventanita/pestaña de PayPal encima de la app** (eso era lo que a veces se quedaba atorado al cancelar, sobre todo con la app agregada a la pantalla de inicio). Ahora, al tocar "Pagar con PayPal o tarjeta", el propio servidor (`api/paypal.js`) crea la orden en PayPal y la app manda a la persona derechito a la página segura de PayPal — una navegación normal, como abrir cualquier enlace, no una ventana nueva. En cuanto la persona termina de pagar (o cancela), PayPal la regresa sola a la app, que confirma el cobro automáticamente. Esto necesita el backend (carpeta `api/`, ver más abajo la sección "Cuentas guardadas y correos automáticos") — sin él, la app sigue funcionando en modo local pero sin poder cobrar de verdad.
-
-### 1. El "Secret" de PayPal (nuevo — solo para el servidor)
-
-Antes solo se usaba el Client ID (público, va en `index.html`). Ahora, para que el servidor pueda hablar con PayPal en tu nombre, también hace falta el **Secret** de esa misma app — este es privado, NUNCA va en `index.html` ni se sube a GitHub, solo se agrega como variable de entorno en Vercel.
-
-1. Entra a [developer.paypal.com](https://developer.paypal.com) e inicia sesión con tu cuenta de PayPal Business.
-2. Ve a **Apps & Credentials**, asegúrate de estar en modo **Live** (no Sandbox, arriba a la derecha).
-3. Verás la lista de tus apps — dale clic al nombre de la app que ya usaste para conseguir el Client ID (la que está en `index.html`).
-4. En esa pantalla verás **Client ID** (el mismo que ya tienes) y, debajo, **Secret**, con un botón que dice **Show** (mostrarlo). Dale clic y cópialo (es una cadena larga de letras y números, parecida al Client ID pero distinta).
-5. En [vercel.com/dashboard](https://vercel.com/dashboard), entra a tu proyecto de ZANO → **Settings** → **Environment Variables**.
-6. Agrega una variable nueva: nombre `PAYPAL_SECRET`, valor lo que copiaste en el paso 4. Guarda.
-7. Ve a la pestaña **Deployments** y dale **Redeploy** al último despliegue (o simplemente sube cualquier archivo nuevo a GitHub — cualquiera de los dos hace que Vercel tome en cuenta la variable nueva).
+Igual que antes: pagar **no abre ninguna ventanita/pestaña encima de la app**. Al tocar "Pagar con Mercado Pago", el propio servidor (`api/mercadopago.js`) crea la "preferencia" (el equivalente a una orden) y la app manda a la persona derechito a la página segura de Mercado Pago — una navegación normal, como abrir cualquier enlace, no una ventana nueva. Ahí mismo aparecen automáticamente TODOS los métodos de pago que tengas activados en tu cuenta (tarjeta de crédito/débito, saldo de Mercado Pago, efectivo en OXXO, transferencia, y Apple Pay/Google Pay si tu cuenta los tiene habilitados) — no hace falta programar cada uno por separado; si quieres activar o desactivar alguno, se hace directo desde la configuración de tu cuenta de Mercado Pago, no en el código. En cuanto la persona termina de pagar (o cancela, o deja un pago pendiente como un voucher de OXXO), Mercado Pago la regresa sola a la app. Esto necesita el backend (carpeta `api/`, ver más abajo la sección "Cuentas guardadas y correos automáticos") — sin él, la app sigue funcionando en modo local pero sin poder cobrar de verdad.
 
 Si un platillo todavía tiene precio pendiente (`[PRECIO]`), la app no deja pagar esa semana hasta que se le asigne un precio real — para evitar cobrar de más o de menos por error.
 
-### 2. Apple Pay (opcional)
+### El Access Token de Mercado Pago (solo para el servidor)
 
-Apple Pay aparece como un botón aparte, solo en iPhone/iPad/Mac con Safari, y solo si tu cuenta de PayPal ya lo tiene habilitado y tu dominio verificado. Si no completas estos pasos (o algo no aplica para tu cuenta), sencillamente ese botón nunca aparece — el botón normal de "Pagar con PayPal o tarjeta" sigue funcionando siempre, sin ningún problema.
+A diferencia de PayPal (que necesitaba dos datos, un Client ID público y un Secret privado), Mercado Pago solo necesita UNO: el **Access Token**. Es privado — NUNCA va en `index.html` ni se sube a GitHub, solo se agrega como variable de entorno en Vercel.
 
-1. Entra a tu cuenta de PayPal Business normal (paypal.com, no developer.paypal.com) → **Configuración de la cuenta** → busca la sección de **Apple Pay** (a veces está dentro de "Preferencias del sitio web" o "Mis productos y servicios", el nombre exacto varía). Confírmame que ya la ves activada ahí (me dijiste que sí).
-2. Ahí mismo debe haber una opción para **verificar un dominio** para Apple Pay — te va a pedir el dominio de tu app (por ejemplo `zano-five.vercel.app`, o el dominio propio si ya tienes uno) y te va a dar un archivo para descargar, algo así: `apple-developer-merchantid-domain-association`.
-3. Ese archivo hay que subirlo a GitHub en una carpeta nueva llamada exactamente `.well-known` (con el punto al inicio), con ese mismo nombre de archivo, SIN ninguna extensión. Para crearlo con la misma técnica que ya usaste para la carpeta `images/`:
-   - En GitHub, dentro de tu repositorio, **Add file → Create new file**.
-   - En el cuadro de nombre, escribe exactamente: `.well-known/apple-developer-merchantid-domain-association`
-   - Abre el archivo que descargaste de PayPal con el Bloc de notas (o TextEdit en Mac) y copia TODO su contenido dentro del cuadro grande de GitHub.
-   - Dale **Commit changes**.
-4. Espera a que Vercel termine de desplegar ese cambio (1-2 minutos), y ya debería quedar verificado del lado de PayPal (a veces hay que regresar a esa misma pantalla de PayPal y darle "Verificar" otra vez).
+1. Entra a [www.mercadopago.com.mx](https://www.mercadopago.com.mx) e inicia sesión con tu cuenta de Mercado Pago (la misma con la que ya te diste de alta como negocio).
+2. Ve a [mercadopago.com.mx/developers/panel/app](https://www.mercadopago.com.mx/developers/panel/app) (o busca "Tus integraciones" / "Credenciales" desde tu panel de Mercado Pago).
+3. Si es la primera vez, te va a pedir crear una aplicación ("Crear aplicación") — dale cualquier nombre, por ejemplo "ZANO".
+4. Entra a esa aplicación → pestaña **Credenciales de producción** (NO "Credenciales de prueba" — esas son para pruebas, no cobran dinero real).
+5. Copia el **Access Token** (una cadena larga que empieza con `APP_USR-`). Si no lo ves de una vez, puede pedirte completar unos datos del negocio primero (RFC, etc.) — es normal, Mercado Pago lo pide para activar cobros de producción.
+6. En [vercel.com/dashboard](https://vercel.com/dashboard), entra a tu proyecto de ZANO → **Settings** → **Environment Variables**.
+7. Agrega una variable nueva: nombre `MERCADOPAGO_ACCESS_TOKEN`, valor lo que copiaste en el paso 5. Guarda.
+8. Ve a la pestaña **Deployments** y dale **Redeploy** al último despliegue (o simplemente sube cualquier archivo nuevo a GitHub — cualquiera de los dos hace que Vercel tome en cuenta la variable nueva).
 
-Si en algún momento el botón de Apple Pay no aparece o no funciona, la app no se rompe — solo revisamos estos pasos juntos con una captura de pantalla de lo que veas.
+Con eso ya queda funcionando el cobro completo, incluyendo el aviso automático que Mercado Pago manda solo al servidor cuando un pago pendiente (como un voucher de OXXO) se termina de confirmar — no hay que registrar nada aparte para eso, ya viene incluido en cada pago que se crea.
+
+Si en algún momento un pago no se confirma o algo se ve raro en el cobro, la app no se rompe — solo revisamos juntos con una captura de pantalla de lo que veas (y, si hace falta, el "ID del pago" que aparece en la pantalla de error).
 
 ## Activar el envío automático del correo de "Ayuda" (EmailJS)
 
 En Perfil → Ayuda, la persona puede escribir un mensaje. Ahora mismo (sin configurar nada) la app usa un respaldo manual: abre la app de correo del teléfono con el mensaje ya redactado a `zano.ayuda@gmail.com`, y además copia el mensaje al portapapeles por si esa app no abre sola. Funciona, pero le pide a la persona que confirme el envío ella misma.
 
-Si prefieres que el mensaje se mande solo, sin que nadie tenga que hacer nada más, puedes activar **EmailJS** — un servicio gratuito (200 correos al mes, sin pedir tarjeta) hecho justo para mandar correos desde una página sin tener servidor propio, igual que hicimos con PayPal para los cobros.
+Si prefieres que el mensaje se mande solo, sin que nadie tenga que hacer nada más, puedes activar **EmailJS** — un servicio gratuito (200 correos al mes, sin pedir tarjeta) hecho justo para mandar correos desde una página sin tener servidor propio.
 
 1. Entra a [emailjs.com](https://www.emailjs.com/) y crea una cuenta gratis.
 2. En el panel, ve a **Email Services** → **Add New Service** y conecta el correo desde el que quieres que salgan los mensajes (lo más simple es conectar una cuenta de Gmail — puede ser la misma `zano.ayuda@gmail.com` u otra). Copia el **Service ID** que te asigna.
@@ -192,6 +182,6 @@ Mientras no completes estos pasos, la app sigue funcionando en modo local como h
 
 - Los 7 platillos de "Bebidas y postres" (Yogurt Griego, Bowl de Frutas, Postres y Snacks, Jugo Verde, Jugo de Naranja, Vampiro, Toronja) siguen con precio `[PRECIO]` — en cuanto me mandes su costeo los lleno.
 - **Aguacate**: quedó en $10.66 (el valor del costeo más reciente y completo del Poke, con 130g). Tu instrucción anterior había sido $12.30 — avísame si ese era un margen intencional o si nos quedamos con el $10.66 del costeo.
-- **Cobro dentro de la app + Apple Pay**: el código ya está listo, pero falta que agregues `PAYPAL_SECRET` en Vercel (y, si quieres Apple Pay, verificar el dominio) — ver la sección de arriba "Cobro dentro de la app (PayPal) + Apple Pay".
+- **Cobro dentro de la app (Mercado Pago)**: el código ya está listo, pero falta que agregues `MERCADOPAGO_ACCESS_TOKEN` en Vercel — ver la sección de arriba "Cobro dentro de la app (Mercado Pago)".
 
 Cualquier ajuste de precios, macros o pantallas, mándamelo y actualizo el archivo.
