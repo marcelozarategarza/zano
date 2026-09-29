@@ -423,6 +423,8 @@ let state = {
   adminSelectedWeek: null,   // week_start elegido en Resumen/Calendario
   adminCostSaving: false,
   adminCostSaved: false,
+  adminMetaSaving: false,
+  adminMetaSaved: false,
 
   // Panel de cocina/trabajadores (ver /#staff) — contraseña propia
   // (STAFF_PASSWORD), separada de la de administrador: el personal ve y
@@ -1075,17 +1077,24 @@ function exportarExcelAdmin() {
   const costsPorSemana = {};
   (data.costs || []).forEach((c) => { costsPorSemana[c.weekStart] = c; });
 
+  const metaRecuperacionCents = data.metaRecuperacionCents || 0;
+
   const resumenRows = (data.weeks || []).map((w) => {
     const c = costsPorSemana[w.weekStart];
-    const gastosCents = c ? (c.ingredientesCents + c.empaqueCents + c.otrosGastosCents) : 0;
+    const otrosGastosCents = c ? c.otrosGastosCents : 0;
+    const gastosCents = gastosAutoCents(w) + otrosGastosCents;
     return {
       'Semana': fmtWeekLabel(w.weekStart),
       'Ventas': (w.ventasCents || 0) / 100,
       'Pedidos pagados': w.pedidosPagados || 0,
-      'Ingredientes': c ? c.ingredientesCents / 100 : 0,
-      'Empaque': c ? c.empaqueCents / 100 : 0,
-      'Otros gastos': c ? c.otrosGastosCents / 100 : 0,
-      'Ganancia neta': ((w.ventasCents || 0) - gastosCents) / 100
+      'Ingredientes': (w.ingredientesAutoCents || 0) / 100,
+      'Sueldo del jefe': (w.sueldoJefeCents || 0) / 100,
+      'Sueldo de los cocineros': (w.sueldoCocinerosCents || 0) / 100,
+      'Comisión al instituto': (w.comisionInstitutoCents || 0) / 100,
+      'Pago de inversión': (w.pagoInversionCents || 0) / 100,
+      'Otros gastos': otrosGastosCents / 100,
+      'Ganancia bruta': ((w.ventasCents || 0) - gastosCents) / 100,
+      'Ganancia neta': (metaRecuperacionCents - (20 * 100 * (w.pedidosPagados || 0))) / 100
     };
   });
 
@@ -1104,17 +1113,21 @@ function exportarExcelAdmin() {
 
   const gastosRows = (data.costs || []).map((c) => ({
     'Semana': fmtWeekLabel(c.weekStart),
-    'Ingredientes': c.ingredientesCents / 100,
-    'Empaque': c.empaqueCents / 100,
     'Otros gastos': c.otrosGastosCents / 100,
     'Notas': c.notas || ''
   }));
+
+  const referenciaRows = [{
+    'Valor de referencia (para Ganancia neta)': metaRecuperacionCents / 100,
+    'Nota': 'Es un valor fijo, igual para todas las semanas. Ganancia neta = este valor − $20 por cada pedido pagado de esa semana.'
+  }];
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumenRows), 'Resumen semanal');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clientesRows), 'Clientes');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(platillosRows), 'Platillos más vendidos');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(gastosRows), 'Gastos');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(gastosRows), 'Otros gastos');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(referenciaRows), 'Valor de referencia');
 
   const hoy = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `ZANO - Reporte ${hoy}.xlsx`);
@@ -1122,8 +1135,6 @@ function exportarExcelAdmin() {
 
 async function saveAdminCost() {
   if (!state.adminSelectedWeek) return;
-  const ingredientesInput = document.getElementById('admin-cost-ingredientes');
-  const empaqueInput = document.getElementById('admin-cost-empaque');
   const otrosInput = document.getElementById('admin-cost-otros');
   const notasInput = document.getElementById('admin-cost-notas');
   setState({ adminCostSaving: true, adminCostSaved: false });
@@ -1132,9 +1143,8 @@ async function saveAdminCost() {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + state.adminToken },
       body: {
+        tipo: 'semana',
         weekStart: state.adminSelectedWeek,
-        ingredientesCents: Math.round((parseFloat(ingredientesInput ? ingredientesInput.value : 0) || 0) * 100),
-        empaqueCents: Math.round((parseFloat(empaqueInput ? empaqueInput.value : 0) || 0) * 100),
         otrosGastosCents: Math.round((parseFloat(otrosInput ? otrosInput.value : 0) || 0) * 100),
         notas: notasInput ? notasInput.value : ''
       }
@@ -1147,6 +1157,29 @@ async function saveAdminCost() {
     }
   } catch (e) {
     setState({ adminCostSaving: false, adminError: 'No hay conexión con el servidor.' });
+  }
+}
+
+async function saveAdminMeta() {
+  const metaInput = document.getElementById('admin-meta-recuperacion');
+  setState({ adminMetaSaving: true, adminMetaSaved: false });
+  try {
+    const r = await apiFetch('/api/admin-costs', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + state.adminToken },
+      body: {
+        tipo: 'meta',
+        metaRecuperacionCents: Math.round((parseFloat(metaInput ? metaInput.value : 0) || 0) * 100)
+      }
+    });
+    if (r.ok) {
+      setState({ adminMetaSaving: false, adminMetaSaved: true });
+      loadAdminData();
+    } else {
+      setState({ adminMetaSaving: false, adminError: (r.data && r.data.error) || 'No se pudo guardar el valor de referencia.' });
+    }
+  } catch (e) {
+    setState({ adminMetaSaving: false, adminError: 'No hay conexión con el servidor.' });
   }
 }
 
@@ -1617,7 +1650,7 @@ function renderLanding() {
   const features = [
     { i: 'leaf', t: 'Comida balanceada', tint: '#E4ECE1', stroke: '#2B5D3F' },
     { i: 'week', t: 'Arma tu semana', tint: '#FBE8DD', stroke: '#C2582A' },
-    { i: 'clock', t: 'Recógelo en tu escuela', tint: '#E4ECE1', stroke: '#2B5D3F' }
+    { i: 'clock', t: 'Recógela cuando quieras', tint: '#E4ECE1', stroke: '#2B5D3F' }
   ];
   return `
     <div style="position:relative;display:flex;flex-direction:column;justify-content:center;gap:16px;min-height:100%;">
@@ -1637,7 +1670,7 @@ function renderLanding() {
 
       <div style="position:relative;">
         <h1 style="margin:0 0 8px 0;font-family:'Fraunces',serif;font-weight:600;font-size:25px;line-height:1.2;letter-spacing:-0.3px;text-align:center;color:#1F2420;">Comida sana, lista para tu semana.</h1>
-        <p style="margin:0 auto;max-width:270px;font-size:12.5px;line-height:1.5;color:#6B7268;text-align:center;">Meal prep saludable para universitarios — pide tu semana y recógela en tu institución.</p>
+        <p style="margin:0 auto;max-width:270px;font-size:12.5px;line-height:1.5;color:#6B7268;text-align:center;">Meal prep saludable enfocada en estudiantes — pide tu semana y recógela en tu institución o sucursal más cerca de ti.</p>
       </div>
 
       <div style="position:relative;background:#FFFFFF;border:1px solid #EFEBE0;border-radius:16px;padding:14px 8px;display:flex;align-items:flex-start;box-shadow:0 3px 10px rgba(31,36,32,0.045);">
@@ -1654,10 +1687,6 @@ function renderLanding() {
       <div style="position:relative;display:flex;flex-direction:column;gap:8px;padding-top:10px;">
         <button onclick="setState({screen:'auth', authMode:'signup', authError:'', authNotice:''})" class="pill-btn" style="box-shadow:0 10px 22px rgba(226,112,58,0.32);">Crear cuenta</button>
         <button onclick="setState({screen:'auth', authMode:'login', authError:'', authNotice:''})" style="padding:13px;border-radius:14px;border:1.5px solid #E7E2D6;font-size:14px;font-weight:700;color:#2B5D3F;text-align:center;">Ya tengo cuenta</button>
-        <div style="display:flex;align-items:center;justify-content:center;gap:6px;padding-top:2px;">
-          ${icon('check', { w: 13, h: 13, stroke: '#9AA096', sw: 2.2 })}
-          <span style="font-size:11px;color:#9AA096;">Pagos seguros con PayPal</span>
-        </div>
         <div style="display:flex;align-items:center;justify-content:center;gap:14px;padding-top:6px;">
           <span onclick="setState({screen:'staffLogin'})" style="font-size:11px;color:#B7BCAF;text-decoration:underline;">Cocina</span>
           <span style="width:3px;height:3px;border-radius:50%;background:#D8D4C6;"></span>
@@ -1970,6 +1999,15 @@ function renderAdminLogin() {
   `;
 }
 
+// Suma los 4 gastos que ya se calculan solos por platillo vendido (ver
+// api/admin-data.js): Ingredientes, Sueldo del jefe, Sueldo de los
+// cocineros, Comisión al instituto y Pago de inversión.
+function gastosAutoCents(w) {
+  if (!w) return 0;
+  return (w.ingredientesAutoCents || 0) + (w.sueldoJefeCents || 0) + (w.sueldoCocinerosCents || 0)
+    + (w.comisionInstitutoCents || 0) + (w.pagoInversionCents || 0);
+}
+
 function renderAdminWeekPicker(data) {
   const weeks = data.weeks || [];
   if (weeks.length === 0) {
@@ -1990,10 +2028,11 @@ function renderAdminResumen(data) {
   const cost = week ? costs.find((c) => c.weekStart === week.weekStart) : null;
 
   const ventas = week ? week.ventasCents : 0;
-  const cogs = cost ? (cost.ingredientesCents + cost.empaqueCents) : 0;
-  const opex = cost ? cost.otrosGastosCents : 0;
-  const bruta = ventas - cogs;
-  const neta = bruta - opex;
+  const otrosGastosCents = cost ? cost.otrosGastosCents : 0;
+  const gastosSemana = (week ? gastosAutoCents(week) : 0) + otrosGastosCents;
+  const bruta = ventas - gastosSemana;
+  const metaRecuperacionCents = data.metaRecuperacionCents || 0;
+  const neta = week ? (metaRecuperacionCents - (20 * 100 * week.pedidosPagados)) : metaRecuperacionCents;
 
   const ventasTotalAllTime = weeks.reduce((s, w) => s + w.ventasCents, 0);
   const pedidosTotalAllTime = weeks.reduce((s, w) => s + w.pedidosPagados, 0);
@@ -2015,7 +2054,12 @@ function renderAdminResumen(data) {
       ${!cost ? `
       <div style="display:flex;gap:8px;align-items:flex-start;background:#F0ECE0;border-radius:12px;padding:12px 14px;">
         ${icon('info', { w: 16, h: 16, stroke: '#6B7268', sw: 1.8 })}
-        <span style="font-size:12px;line-height:1.4;color:#6B7268;">Todavía no capturas los gastos de esta semana, por eso la ganancia sale igual a las ventas. Ve a la pestaña "Gastos" para meterlos.</span>
+        <span style="font-size:12px;line-height:1.4;color:#6B7268;">Todavía no capturas "Otros gastos" de esta semana (Ingredientes, Sueldo del jefe, Sueldo de los cocineros, Comisión al instituto y Pago de inversión ya se calculan solos). Ve a la pestaña "Gastos" si tuviste otros gastos que agregar.</span>
+      </div>` : ''}
+      ${metaRecuperacionCents === 0 ? `
+      <div style="display:flex;gap:8px;align-items:flex-start;background:#F0ECE0;border-radius:12px;padding:12px 14px;">
+        ${icon('info', { w: 16, h: 16, stroke: '#6B7268', sw: 1.8 })}
+        <span style="font-size:12px;line-height:1.4;color:#6B7268;">Todavía no capturas tu valor de referencia para Ganancia neta (es un solo valor fijo, no cambia por semana). Ve a la pestaña "Gastos" para ponerlo.</span>
       </div>` : ''}
       ` : `<p style="margin:0;font-size:12.5px;color:#9AA096;">Elige una semana con pedidos pagados.</p>`}
 
@@ -2130,29 +2174,39 @@ function renderAdminGastos(data) {
   const weeks = data.weeks || [];
   const costs = data.costs || [];
   const selectedWeek = state.adminSelectedWeek || (weeks[0] && weeks[0].weekStart) || null;
+  const week = weeks.find((w) => w.weekStart === selectedWeek) || null;
   const existing = costs.find((c) => c.weekStart === selectedWeek) || null;
 
-  const ingredientesVal = existing ? (existing.ingredientesCents / 100).toFixed(2) : '';
-  const empaqueVal = existing ? (existing.empaqueCents / 100).toFixed(2) : '';
   const otrosVal = existing ? (existing.otrosGastosCents / 100).toFixed(2) : '';
   const notasVal = existing ? existing.notas : '';
+  const metaVal = ((data.metaRecuperacionCents || 0) / 100).toFixed(2);
 
   return `
     <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:6px;">
+        <div style="font-size:11.5px;font-weight:700;color:#6B7268;">VALOR DE REFERENCIA (Ganancia neta)</div>
+        <span style="font-size:11.5px;line-height:1.4;color:#6B7268;">Es un solo valor fijo — no cambia por semana. Ganancia neta = este valor − $20 por cada pedido pagado de la semana.</span>
+        <input id="admin-meta-recuperacion" type="number" inputmode="decimal" step="0.01" min="0" value="${metaVal}" placeholder="0.00">
+        <button onclick="saveAdminMeta()" class="pill-btn" ${state.adminMetaSaving ? 'disabled' : ''}>${state.adminMetaSaving ? 'Guardando…' : 'Guardar valor de referencia'}</button>
+        ${state.adminMetaSaved ? `<div style="display:flex;align-items:center;gap:6px;justify-content:center;">${icon('check', { w: 14, h: 14, stroke: '#2B5D3F', sw: 2.2 })}<span style="font-size:12px;color:#2B5D3F;">Guardado.</span></div>` : ''}
+      </div>
+
       <div>
-        <div style="font-size:11.5px;font-weight:700;color:#6B7268;margin-bottom:6px;">SEMANA</div>
+        <div style="font-size:11.5px;font-weight:700;color:#6B7268;margin-bottom:6px;">SEMANA (Ganancia bruta)</div>
         ${renderAdminWeekPicker(data)}
       </div>
 
       ${!selectedWeek ? `<p style="margin:0;font-size:12.5px;color:#9AA096;">Elige una semana con pedidos pagados para registrarle gastos.</p>` : `
-      <div style="display:flex;flex-direction:column;gap:6px;">
-        <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Ingredientes ($)</label>
-        <input id="admin-cost-ingredientes" type="number" inputmode="decimal" step="0.01" min="0" value="${ingredientesVal}" placeholder="0.00">
+      <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:2px;">
+        <div style="font-size:11.5px;font-weight:700;color:#6B7268;margin-bottom:6px;">CALCULADOS SOLOS, POR PLATILLO VENDIDO</div>
+        <span style="font-size:11px;line-height:1.4;color:#9AA096;margin-bottom:6px;">De cada platillo vendido se reparten siempre $70: $20 sueldo del jefe, $20 sueldo de los cocineros, $10 comisión al instituto y $20 pago de inversión — el resto del precio es Ingredientes.</span>
+        <div class="admin-table-row"><span style="font-size:12.5px;color:#1F2420;">Ingredientes</span><span style="font-size:12.5px;font-weight:700;color:#1F2420;">${fmtMoney(week ? week.ingredientesAutoCents : 0)}</span></div>
+        <div class="admin-table-row"><span style="font-size:12.5px;color:#1F2420;">Sueldo del jefe</span><span style="font-size:12.5px;font-weight:700;color:#1F2420;">${fmtMoney(week ? week.sueldoJefeCents : 0)}</span></div>
+        <div class="admin-table-row"><span style="font-size:12.5px;color:#1F2420;">Sueldo de los cocineros</span><span style="font-size:12.5px;font-weight:700;color:#1F2420;">${fmtMoney(week ? week.sueldoCocinerosCents : 0)}</span></div>
+        <div class="admin-table-row"><span style="font-size:12.5px;color:#1F2420;">Comisión al instituto</span><span style="font-size:12.5px;font-weight:700;color:#1F2420;">${fmtMoney(week ? week.comisionInstitutoCents : 0)}</span></div>
+        <div class="admin-table-row"><span style="font-size:12.5px;color:#1F2420;">Pago de inversión</span><span style="font-size:12.5px;font-weight:700;color:#1F2420;">${fmtMoney(week ? week.pagoInversionCents : 0)}</span></div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:6px;">
-        <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Empaque ($)</label>
-        <input id="admin-cost-empaque" type="number" inputmode="decimal" step="0.01" min="0" value="${empaqueVal}" placeholder="0.00">
-      </div>
+
       <div style="display:flex;flex-direction:column;gap:6px;">
         <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Otros gastos ($) <span style="font-weight:400;color:#9AA096;">— transporte, gas, etc.</span></label>
         <input id="admin-cost-otros" type="number" inputmode="decimal" step="0.01" min="0" value="${otrosVal}" placeholder="0.00">
@@ -2162,9 +2216,44 @@ function renderAdminGastos(data) {
         <textarea id="admin-cost-notas" placeholder="Ej. compré de más para la próxima semana">${esc(notasVal)}</textarea>
       </div>
 
-      <button onclick="saveAdminCost()" class="pill-btn" ${state.adminCostSaving ? 'disabled' : ''}>${state.adminCostSaving ? 'Guardando…' : 'Guardar gastos de la semana'}</button>
+      <button onclick="saveAdminCost()" class="pill-btn" ${state.adminCostSaving ? 'disabled' : ''}>${state.adminCostSaving ? 'Guardando…' : 'Guardar otros gastos'}</button>
       ${state.adminCostSaved ? `<div style="display:flex;align-items:center;gap:6px;justify-content:center;">${icon('check', { w: 14, h: 14, stroke: '#2B5D3F', sw: 2.2 })}<span style="font-size:12px;color:#2B5D3F;">Guardado.</span></div>` : ''}
       `}
+    </div>
+  `;
+}
+
+function renderAdminHistorial(data) {
+  const weeks = data.weeks || [];
+  const costs = data.costs || [];
+  const metaRecuperacionCents = data.metaRecuperacionCents || 0;
+
+  if (weeks.length === 0) {
+    return `<p style="margin:0;font-size:12.5px;color:#9AA096;text-align:center;padding:24px 0;">Todavía no hay semanas con pedidos pagados.</p>`;
+  }
+
+  return `
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <span style="font-size:11.5px;line-height:1.4;color:#6B7268;">Historial de todas las semanas con pedidos pagados (últimos 6 meses), de la más reciente a la más antigua.</span>
+      ${weeks.map((w) => {
+        const cost = costs.find((c) => c.weekStart === w.weekStart) || null;
+        const otrosGastosCents = cost ? cost.otrosGastosCents : 0;
+        const gastosSemana = gastosAutoCents(w) + otrosGastosCents;
+        const bruta = w.ventasCents - gastosSemana;
+        const neta = metaRecuperacionCents - (20 * 100 * w.pedidosPagados);
+        return `
+          <div class="card" style="padding:14px;">
+            <div style="font-size:13.5px;font-weight:700;color:#1F2420;margin-bottom:10px;">${esc(fmtWeekLabel(w.weekStart))}</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <div class="admin-stat"><div class="val">${fmtMoney(w.ventasCents)}</div><div class="lbl">Ventas</div></div>
+              <div class="admin-stat"><div class="val">${w.pedidosPagados}</div><div class="lbl">Pedidos pagados</div></div>
+              <div class="admin-stat"><div class="val" style="color:${bruta >= 0 ? '#2B5D3F' : '#B4472A'};">${fmtMoney(bruta)}</div><div class="lbl">Ganancia bruta</div></div>
+              <div class="admin-stat"><div class="val" style="color:${neta >= 0 ? '#2B5D3F' : '#B4472A'};">${fmtMoney(neta)}</div><div class="lbl">Ganancia neta</div></div>
+            </div>
+            ${!cost ? `<div style="margin-top:8px;font-size:11px;color:#9AA096;">Sin "Otros gastos" capturados esta semana.</div>` : ''}
+          </div>
+        `;
+      }).join('')}
     </div>
   `;
 }
@@ -2176,7 +2265,8 @@ function renderAdmin() {
     { key: 'clientes', label: 'Clientes' },
     { key: 'platillos', label: 'Platillos' },
     { key: 'calendario', label: 'Entregas' },
-    { key: 'gastos', label: 'Gastos' }
+    { key: 'gastos', label: 'Gastos' },
+    { key: 'historial', label: 'Historial' }
   ];
   return `
     <div style="display:flex;flex-direction:column;gap:16px;">
@@ -2194,8 +2284,8 @@ function renderAdmin() {
         Exportar a Excel
       </button>` : ''}
 
-      <div class="card" style="display:flex;gap:4px;padding:4px;">
-        ${tabs.map((t) => `<button onclick='setState({adminTab:${JSON.stringify(t.key)}})' class="admin-tab ${state.adminTab === t.key ? 'active' : ''}">${t.label}</button>`).join('')}
+      <div class="card" style="display:flex;flex-wrap:wrap;gap:4px;padding:4px;">
+        ${tabs.map((t) => `<button onclick='setState({adminTab:${JSON.stringify(t.key)}})' class="admin-tab ${state.adminTab === t.key ? 'active' : ''}" style="flex:1 1 30%;">${t.label}</button>`).join('')}
       </div>
 
       ${state.adminError ? `
@@ -2210,6 +2300,7 @@ function renderAdmin() {
         : state.adminTab === 'clientes' ? renderAdminClientes(data)
         : state.adminTab === 'platillos' ? renderAdminPlatillos(data)
         : state.adminTab === 'calendario' ? renderAdminCalendario(data)
+        : state.adminTab === 'historial' ? renderAdminHistorial(data)
         : renderAdminGastos(data)}
     </div>
   `;
