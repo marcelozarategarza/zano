@@ -12,6 +12,9 @@
 //   tipo: 'semana' (o sin "tipo", para no romper nada que ya funcionaba)
 //         -> guarda Otros gastos y notas de una semana.
 //   tipo: 'meta'   -> guarda el valor de referencia fijo para Ganancia neta.
+//   tipo: 'croissantPrice' -> guarda el precio fijo de un croissant (para
+//         armar las ventas de croissants que llegan de Cocina, ver
+//         api/admin-data.js y api/staff.js).
 const { getPool } = require('./_db');
 const { getAdminFromRequest } = require('./_auth');
 
@@ -43,6 +46,25 @@ module.exports = async function handler(req, res) {
     } catch (err) {
       console.error('[admin-costs:meta] Error:', err);
       res.status(500).json({ error: 'Error del servidor al guardar el valor de referencia.' });
+    }
+    return;
+  }
+
+  if (tipo === 'croissantPrice') {
+    try {
+      const { croissantPriceCents } = req.body || {};
+      const pool = getPool();
+      await pool.query(
+        `INSERT INTO business_settings (id, croissant_price_cents, updated_at)
+         VALUES (1, $1, now())
+         ON CONFLICT (id)
+         DO UPDATE SET croissant_price_cents = EXCLUDED.croissant_price_cents, updated_at = now()`,
+        [croissantPriceCents || 0]
+      );
+      res.status(200).json({ ok: true });
+    } catch (err) {
+      console.error('[admin-costs:croissantPrice] Error:', err);
+      res.status(500).json({ error: 'Error del servidor al guardar el precio del croissant.' });
     }
     return;
   }
