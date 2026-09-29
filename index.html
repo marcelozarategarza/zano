@@ -425,6 +425,8 @@ let state = {
   adminCostSaved: false,
   adminMetaSaving: false,
   adminMetaSaved: false,
+  adminCroissantPriceSaving: false,
+  adminCroissantPriceSaved: false,
 
   // Panel de cocina/trabajadores (ver /#staff) — contraseña propia
   // (STAFF_PASSWORD), separada de la de administrador: el personal ve y
@@ -433,7 +435,7 @@ let state = {
   staffPassword: '',
   staffError: '',
   staffLoading: false,
-  staffData: null,       // { weekStart, rows, croissantHoy }
+  staffData: null,       // { weekStart, rows, croissantHoy: {efectivo, tarjeta} }
   staffTab: 'proximos',  // proximos | proceso | listos | entregados
   staffCroissantBusy: false,
 
@@ -1012,15 +1014,17 @@ async function submitResetPassword() {
 // Panel de administración (solo para ti — entras por tudominio.com/#admin)
 // ---------------------------------------------------------------------
 async function submitAdminLogin() {
+  const emailInput = document.getElementById('admin-email');
   const passInput = document.getElementById('admin-password');
+  const email = emailInput ? emailInput.value.trim() : '';
   const password = passInput ? passInput.value : '';
-  if (!password) {
-    setState({ adminError: 'Escribe la contraseña.' });
+  if (!email || !password) {
+    setState({ adminError: 'Escribe el correo y la contraseña.' });
     return;
   }
   setState({ adminError: '', adminLoading: true });
   try {
-    const r = await apiFetch('/api/admin-login', { method: 'POST', body: { password } });
+    const r = await apiFetch('/api/admin-login', { method: 'POST', body: { email, password } });
     if (r.ok && r.data && r.data.token) {
       setState({ adminLoading: false, adminToken: r.data.token, adminPassword: '', screen: 'admin' });
       loadAdminData();
@@ -1119,14 +1123,24 @@ function exportarExcelAdmin() {
 
   const referenciaRows = [{
     'Valor de referencia (para Ganancia neta)': metaRecuperacionCents / 100,
-    'Nota': 'Es un valor fijo, igual para todas las semanas. Ganancia neta = este valor − $20 por cada pedido pagado de esa semana.'
+    'Precio del croissant': (data.croissantPriceCents || 0) / 100,
+    'Nota': 'Ganancia neta = valor de referencia − $20 por cada pedido pagado de esa semana. Las ventas de croissants están aparte, no se suman a Ganancia bruta/neta.'
   }];
+
+  const croissantsRows = (data.croissants || []).map((c) => ({
+    'Semana': fmtWeekLabel(c.weekStart),
+    'Vendidos en efectivo': c.efectivoQty,
+    'Vendidos con tarjeta': c.tarjetaQty,
+    'Total vendidos': c.totalQty,
+    'Ventas de croissants': c.totalCents / 100
+  }));
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumenRows), 'Resumen semanal');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clientesRows), 'Clientes');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(platillosRows), 'Platillos más vendidos');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(gastosRows), 'Otros gastos');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(croissantsRows), 'Croissants');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(referenciaRows), 'Valor de referencia');
 
   const hoy = new Date().toISOString().slice(0, 10);
@@ -1183,18 +1197,43 @@ async function saveAdminMeta() {
   }
 }
 
+async function saveAdminCroissantPrice() {
+  const priceInput = document.getElementById('admin-croissant-price');
+  setState({ adminCroissantPriceSaving: true, adminCroissantPriceSaved: false });
+  try {
+    const r = await apiFetch('/api/admin-costs', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + state.adminToken },
+      body: {
+        tipo: 'croissantPrice',
+        croissantPriceCents: Math.round((parseFloat(priceInput ? priceInput.value : 0) || 0) * 100)
+      }
+    });
+    if (r.ok) {
+      setState({ adminCroissantPriceSaving: false, adminCroissantPriceSaved: true });
+      loadAdminData();
+    } else {
+      setState({ adminCroissantPriceSaving: false, adminError: (r.data && r.data.error) || 'No se pudo guardar el precio del croissant.' });
+    }
+  } catch (e) {
+    setState({ adminCroissantPriceSaving: false, adminError: 'No hay conexión con el servidor.' });
+  }
+}
+
 // ---------------------------------------------------------------------
 // Panel de cocina/trabajadores (ver /#staff) — pedidos de esta semana con
 // su estatus de preparación, y el conteo de croissants vendidos hoy sin
 // pedido previo. Nunca muestra ventas, ganancias ni datos financieros.
 // ---------------------------------------------------------------------
 async function submitStaffLogin() {
+  const emailInput = document.getElementById('staff-email');
   const passInput = document.getElementById('staff-password');
+  const email = emailInput ? emailInput.value.trim() : '';
   const password = passInput ? passInput.value : '';
-  if (!password) { setState({ staffError: 'Escribe la contraseña.' }); return; }
+  if (!email || !password) { setState({ staffError: 'Escribe el correo y la contraseña.' }); return; }
   setState({ staffError: '', staffLoading: true });
   try {
-    const r = await apiFetch('/api/staff?action=login', { method: 'POST', body: { password } });
+    const r = await apiFetch('/api/staff?action=login', { method: 'POST', body: { email, password } });
     if (r.ok && r.data && r.data.token) {
       setState({ staffLoading: false, staffToken: r.data.token, staffPassword: '', screen: 'staff' });
       loadStaffData();
@@ -1246,18 +1285,20 @@ async function setPedidoStatus(orderId, dia, status) {
   }
 }
 
-async function ajustarCroissant(delta) {
+async function ajustarCroissant(delta, metodo) {
   if (state.staffCroissantBusy || !state.staffData) return;
-  const anterior = state.staffData.croissantHoy;
-  setState({ staffCroissantBusy: true, staffData: { ...state.staffData, croissantHoy: Math.max(0, anterior + delta) } });
+  const anterior = state.staffData.croissantHoy || { efectivo: 0, tarjeta: 0 };
+  const optimista = { ...anterior, [metodo]: Math.max(0, (anterior[metodo] || 0) + delta) };
+  setState({ staffCroissantBusy: true, staffData: { ...state.staffData, croissantHoy: optimista } });
   try {
     const r = await apiFetch('/api/staff?action=croissant', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + state.staffToken },
-      body: { delta }
+      body: { delta, metodo }
     });
     if (r.ok && r.data && typeof r.data.count === 'number') {
-      setState({ staffCroissantBusy: false, staffData: { ...state.staffData, croissantHoy: r.data.count } });
+      const actualizado = { ...anterior, [metodo]: r.data.count };
+      setState({ staffCroissantBusy: false, staffData: { ...state.staffData, croissantHoy: actualizado } });
     } else {
       setState({ staffCroissantBusy: false, staffData: { ...state.staffData, croissantHoy: anterior } });
     }
@@ -1857,6 +1898,10 @@ function renderStaffLogin() {
       </div>
 
       <div style="display:flex;flex-direction:column;gap:6px;">
+        <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Correo</label>
+        <input id="staff-email" type="email" placeholder="Correo autorizado" onkeydown="if(event.key==='Enter') submitStaffLogin()">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
         <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Contraseña</label>
         <input id="staff-password" type="password" placeholder="Contraseña de cocina" onkeydown="if(event.key==='Enter') submitStaffLogin()">
       </div>
@@ -1939,12 +1984,20 @@ function renderStaff() {
         <button onclick="staffLogout()" style="font-size:12px;font-weight:700;color:#B4472A;padding:8px 12px;border-radius:10px;border:1px solid #EFD7CE;flex-shrink:0;">Salir</button>
       </div>
 
-      <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:10px;background:#FFF7E9;border-color:#F0DDA6;">
+      <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:12px;background:#FFF7E9;border-color:#F0DDA6;">
         <span style="font-size:12px;font-weight:700;color:#8A6A1E;text-transform:uppercase;letter-spacing:0.3px;">Croissants vendidos hoy (sin pedido previo)</span>
-        <div style="display:flex;align-items:center;justify-content:center;gap:22px;">
-          <button onclick="ajustarCroissant(-1)" aria-label="Restar uno" style="width:44px;height:44px;border-radius:999px;background:#FFFFFF;border:1px solid #E7E2D6;font-size:20px;font-weight:700;color:#1F2420;">−</button>
-          <span style="font-family:'Fraunces',serif;font-weight:700;font-size:34px;color:#1F2420;min-width:56px;text-align:center;">${data ? data.croissantHoy : 0}</span>
-          <button onclick="ajustarCroissant(1)" aria-label="Sumar uno" style="width:44px;height:44px;border-radius:999px;background:#2B5D3F;border:none;font-size:20px;font-weight:700;color:#FFFFFF;">+</button>
+        <span style="font-size:11px;line-height:1.4;color:#8A6A1E;">Cada vez que toques "+" queda registrada esa venta de hoy, con cómo se cobró — le llega a Administración.</span>
+        <div style="display:flex;gap:10px;">
+          ${['efectivo', 'tarjeta'].map((metodo) => `
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;">
+              <span style="font-size:11px;font-weight:700;color:#8A6A1E;text-transform:uppercase;">${metodo === 'efectivo' ? 'Efectivo' : 'Tarjeta'}</span>
+              <div style="display:flex;align-items:center;justify-content:center;gap:10px;">
+                <button onclick='ajustarCroissant(-1, ${JSON.stringify(metodo)})' aria-label="Restar uno" style="width:38px;height:38px;border-radius:999px;background:#FFFFFF;border:1px solid #E7E2D6;font-size:18px;font-weight:700;color:#1F2420;">−</button>
+                <span style="font-family:'Fraunces',serif;font-weight:700;font-size:26px;color:#1F2420;min-width:34px;text-align:center;">${data && data.croissantHoy ? data.croissantHoy[metodo] : 0}</span>
+                <button onclick='ajustarCroissant(1, ${JSON.stringify(metodo)})' aria-label="Sumar uno" style="width:38px;height:38px;border-radius:999px;background:#2B5D3F;border:none;font-size:18px;font-weight:700;color:#FFFFFF;">+</button>
+              </div>
+            </div>
+          `).join('')}
         </div>
       </div>
 
@@ -1981,6 +2034,10 @@ function renderAdminLogin() {
         <p style="margin:0;font-size:13.5px;line-height:1.5;color:#6B7268;text-align:center;">Solo para ti — ventas, clientes, platillos y gastos del negocio.</p>
       </div>
 
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Correo</label>
+        <input id="admin-email" type="email" placeholder="Correo autorizado" onkeydown="if(event.key==='Enter') submitAdminLogin()">
+      </div>
       <div style="display:flex;flex-direction:column;gap:6px;">
         <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Contraseña</label>
         <input id="admin-password" type="password" placeholder="Contraseña de administrador" onkeydown="if(event.key==='Enter') submitAdminLogin()">
@@ -2037,6 +2094,10 @@ function renderAdminResumen(data) {
   const ventasTotalAllTime = weeks.reduce((s, w) => s + w.ventasCents, 0);
   const pedidosTotalAllTime = weeks.reduce((s, w) => s + w.pedidosPagados, 0);
 
+  const selectedWeekStart = week ? week.weekStart : state.adminSelectedWeek;
+  const croissantWeek = (data.croissants || []).find((c) => c.weekStart === selectedWeekStart) || null;
+  const croissantPriceCents = data.croissantPriceCents || 0;
+
   return `
     <div style="display:flex;flex-direction:column;gap:14px;">
       <div>
@@ -2062,6 +2123,14 @@ function renderAdminResumen(data) {
         <span style="font-size:12px;line-height:1.4;color:#6B7268;">Todavía no capturas tu valor de referencia para Ganancia neta (es un solo valor fijo, no cambia por semana). Ve a la pestaña "Gastos" para ponerlo.</span>
       </div>` : ''}
       ` : `<p style="margin:0;font-size:12.5px;color:#9AA096;">Elige una semana con pedidos pagados.</p>`}
+
+      <div class="card" style="padding:14px;">
+        <div style="font-size:11.5px;font-weight:700;color:#6B7268;margin-bottom:4px;">CROISSANTS DE LA SEMANA <span style="font-weight:400;color:#9AA096;">— aparte, sin pedido previo (viene de Cocina)</span></div>
+        <div class="admin-table-row"><span style="font-size:13px;color:#1F2420;">Vendidos en efectivo</span><span style="font-size:13px;font-weight:700;color:#1F2420;">${croissantWeek ? croissantWeek.efectivoQty : 0}</span></div>
+        <div class="admin-table-row"><span style="font-size:13px;color:#1F2420;">Vendidos con tarjeta</span><span style="font-size:13px;font-weight:700;color:#1F2420;">${croissantWeek ? croissantWeek.tarjetaQty : 0}</span></div>
+        <div class="admin-table-row"><span style="font-size:13px;color:#1F2420;">Ventas de croissants</span><span style="font-size:13px;font-weight:700;color:#1F2420;">${fmtMoney(croissantWeek ? croissantWeek.totalCents : 0)}</span></div>
+        ${croissantPriceCents === 0 ? `<div style="margin-top:8px;font-size:11px;color:#9AA096;">Todavía no capturas el precio del croissant, por eso las ventas salen en $0.00. Ve a la pestaña "Gastos" para ponerlo.</div>` : ''}
+      </div>
 
       <div class="card" style="padding:14px;">
         <div style="font-size:11.5px;font-weight:700;color:#6B7268;margin-bottom:4px;">ACUMULADO (últimos 6 meses)</div>
@@ -2180,6 +2249,7 @@ function renderAdminGastos(data) {
   const otrosVal = existing ? (existing.otrosGastosCents / 100).toFixed(2) : '';
   const notasVal = existing ? existing.notas : '';
   const metaVal = ((data.metaRecuperacionCents || 0) / 100).toFixed(2);
+  const croissantPriceVal = ((data.croissantPriceCents || 0) / 100).toFixed(2);
 
   return `
     <div style="display:flex;flex-direction:column;gap:14px;">
@@ -2189,6 +2259,14 @@ function renderAdminGastos(data) {
         <input id="admin-meta-recuperacion" type="number" inputmode="decimal" step="0.01" min="0" value="${metaVal}" placeholder="0.00">
         <button onclick="saveAdminMeta()" class="pill-btn" ${state.adminMetaSaving ? 'disabled' : ''}>${state.adminMetaSaving ? 'Guardando…' : 'Guardar valor de referencia'}</button>
         ${state.adminMetaSaved ? `<div style="display:flex;align-items:center;gap:6px;justify-content:center;">${icon('check', { w: 14, h: 14, stroke: '#2B5D3F', sw: 2.2 })}<span style="font-size:12px;color:#2B5D3F;">Guardado.</span></div>` : ''}
+      </div>
+
+      <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:6px;">
+        <div style="font-size:11.5px;font-weight:700;color:#6B7268;">PRECIO DEL CROISSANT</div>
+        <span style="font-size:11.5px;line-height:1.4;color:#6B7268;">Es un solo valor fijo, igual para todas las semanas. Con esto se arman las ventas de croissants que llegan de Cocina (se muestran aparte, en Resumen).</span>
+        <input id="admin-croissant-price" type="number" inputmode="decimal" step="0.01" min="0" value="${croissantPriceVal}" placeholder="0.00">
+        <button onclick="saveAdminCroissantPrice()" class="pill-btn" ${state.adminCroissantPriceSaving ? 'disabled' : ''}>${state.adminCroissantPriceSaving ? 'Guardando…' : 'Guardar precio del croissant'}</button>
+        ${state.adminCroissantPriceSaved ? `<div style="display:flex;align-items:center;gap:6px;justify-content:center;">${icon('check', { w: 14, h: 14, stroke: '#2B5D3F', sw: 2.2 })}<span style="font-size:12px;color:#2B5D3F;">Guardado.</span></div>` : ''}
       </div>
 
       <div>
@@ -2241,6 +2319,7 @@ function renderAdminHistorial(data) {
         const gastosSemana = gastosAutoCents(w) + otrosGastosCents;
         const bruta = w.ventasCents - gastosSemana;
         const neta = metaRecuperacionCents - (20 * 100 * w.pedidosPagados);
+        const croissantWeek = (data.croissants || []).find((c) => c.weekStart === w.weekStart) || null;
         return `
           <div class="card" style="padding:14px;">
             <div style="font-size:13.5px;font-weight:700;color:#1F2420;margin-bottom:10px;">${esc(fmtWeekLabel(w.weekStart))}</div>
@@ -2251,6 +2330,7 @@ function renderAdminHistorial(data) {
               <div class="admin-stat"><div class="val" style="color:${neta >= 0 ? '#2B5D3F' : '#B4472A'};">${fmtMoney(neta)}</div><div class="lbl">Ganancia neta</div></div>
             </div>
             ${!cost ? `<div style="margin-top:8px;font-size:11px;color:#9AA096;">Sin "Otros gastos" capturados esta semana.</div>` : ''}
+            ${croissantWeek ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid #F0ECE0;font-size:11.5px;color:#6B7268;">Croissants (aparte): ${croissantWeek.totalQty} vendidos (${croissantWeek.efectivoQty} efectivo, ${croissantWeek.tarjetaQty} tarjeta) — ${fmtMoney(croissantWeek.totalCents)}</div>` : ''}
           </div>
         `;
       }).join('')}
