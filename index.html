@@ -39,27 +39,16 @@
 <title>ZANO — App de pedidos</title>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <!--
-  Cobro real con PayPal: el Client ID de abajo es público (va en el navegador)
-  y es seguro exponerlo — NUNCA pongas aquí un "Secret" de PayPal. Este ya es
-  el Client ID de LIVE (cuenta real de negocio de ZANO) — a partir de aquí,
-  cualquier pago que se haga en la app es dinero real, no de prueba.
-  "currency=MXN" cobra en pesos mexicanos.
-
-  Desde ahora el botón principal de pago YA NO usa este SDK para dibujar su
-  propio botón (eso era lo que abría la ventanita/pestaña que se quedaba
-  atorada) — ese botón ahora es uno normal de la app que manda a la persona
-  derechito a la página de pago de PayPal (ver iniciarPagoPayPal() más abajo
-  y api/paypal.js). Este script solo sigue haciendo falta para el botón de
-  Apple Pay ("components=applepay"), que si sí usa el SDK de PayPal en el
-  navegador para checar si el dispositivo/cuenta lo soportan.
+  Cobro real con Mercado Pago: a diferencia de antes con PayPal, aquí no
+  hace falta ningún SDK cargado en el navegador — el botón de pagar manda
+  al cliente derechito a la página segura de pago de Mercado Pago (creada
+  por el servidor, ver iniciarPagoMercadoPago() más abajo y
+  api/mercadopago.js), una navegación normal, como abrir cualquier enlace.
+  Ahí mismo, Mercado Pago ya muestra automáticamente todos los métodos de
+  pago que tengas activados en tu cuenta (tarjeta, saldo de Mercado Pago,
+  efectivo en OXXO, transferencia, y Apple Pay/Google Pay si tu cuenta los
+  tiene habilitados) — no hace falta programar cada uno por separado.
 -->
-<script src="https://www.paypal.com/sdk/js?client-id=BAA9IQZnchv-jwAGGZMjpBuVQY8KCQfhR4Yu25NGnxPuGNzoT1alY1890JpmXWBVNS4A_Cbc1tY_2Kvh50&currency=MXN&intent=capture&components=applepay"></script>
-<!--
-  SDK de Apple para el botón de Apple Pay (junto con el de PayPal arriba).
-  Solo aplica en iPhone/iPad/Mac con Safari — en cualquier otro dispositivo
-  o navegador simplemente no aparece el botón de Apple Pay (nada se rompe).
--->
-<script src="https://applepay.cdn-apple.com/jsapi/1.latest/apple-pay-sdk.js"></script>
 <!--
   Envío automático del correo de "Ayuda" (sin backend) con EmailJS: la Public Key
   es pública y es seguro exponerla — NUNCA pongas aquí una llave privada.
@@ -387,7 +376,7 @@ let state = {
   horarios: {},
   horarioPickerDay: null,
   paymentError: '',
-  payLoading: false,       // true justo mientras se crea la orden en el servidor y se manda a la página de PayPal
+  payLoading: false,       // true justo mientras se crea la preferencia en el servidor y se manda a la página de Mercado Pago
   lastPaymentId: null,
   perfilMetodosOpen: false,
   perfilInstitucionOpen: false,
@@ -1318,25 +1307,28 @@ function computeStaffGroups() {
 }
 
 // ---------------------------------------------------------------------
-// Cobro real (PayPal dentro de la app + Apple Pay)
+// Cobro real (Mercado Pago)
 // ---------------------------------------------------------------------
 //
-// Antes, el botón de pagar abría una ventanita/pestaña de PayPal encima de
-// la app (un "popup") — eso es justo lo que se quedaba atorado al cancelar,
-// sobre todo con la app agregada a la pantalla de inicio. Ahora ya no hay
-// ninguna ventanita: al tocar "Pagar", el propio servidor (api/paypal.js)
-// crea la orden y la app manda a la persona derechito a la página segura
-// de PayPal (una navegación normal, como abrir cualquier enlace). En
-// cuanto termina de pagar o cancela, PayPal la regresa sola aquí mismo —
-// eso se detecta al abrir la app con "?zpay=" en la dirección (ver más
-// abajo, cerca del arranque de la app) y ahí se confirma el pago.
+// Igual que antes con PayPal: el botón de pagar NO abre ninguna
+// ventanita/pestaña que se pueda quedar atorada. Al tocar "Pagar", el
+// propio servidor (api/mercadopago.js) crea la "preferencia" (como una
+// orden) y la app manda a la persona derechito a la página segura de
+// Mercado Pago (una navegación normal, como abrir cualquier enlace). Ahí
+// mismo aparecen ya todos los métodos de pago que tengas activados en tu
+// cuenta de Mercado Pago (tarjeta, saldo, efectivo en OXXO, transferencia,
+// etc. — sin tener que programar cada uno aparte). En cuanto la persona
+// termina, cancela, o deja un pago pendiente (por ejemplo pagando en
+// efectivo), Mercado Pago la regresa sola aquí mismo — eso se detecta al
+// abrir la app con "?zpay=" en la dirección (ver más abajo, cerca del
+// arranque de la app) y ahí se confirma el pago.
 
-// Pide al servidor que cree la orden y, si todo sale bien, navega a la
-// página de PayPal para terminar de pagar. NO abre ninguna ventana nueva
-// (a propósito: eso es lo que se atoraba) — es una navegación normal, así
-// que funciona igual en cualquier navegador, en incógnito, y también con
-// la app agregada a la pantalla de inicio.
-function iniciarPagoPayPal() {
+// Pide al servidor que cree la preferencia y, si todo sale bien, navega a
+// la página de Mercado Pago para terminar de pagar. NO abre ninguna
+// ventana nueva — es una navegación normal, así que funciona igual en
+// cualquier navegador, en incógnito, y también con la app agregada a la
+// pantalla de inicio.
+function iniciarPagoMercadoPago() {
   if (!state.authToken) {
     setState({ paymentError: 'Necesitas iniciar sesión para pagar.' });
     return;
@@ -1345,130 +1337,46 @@ function iniciarPagoPayPal() {
   if (!complete || !(total > 0)) return;
 
   setState({ payLoading: true, paymentError: '' });
-  apiFetch('/api/paypal', {
+  apiFetch('/api/mercadopago', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + state.authToken },
     body: { action: 'create', weekStart: computeWeekStartISO(), totalCents: Math.round(total * 100) }
   }).then((r) => {
-    if (r.ok && r.data && r.data.approveUrl) {
-      location.href = r.data.approveUrl;
+    if (r.ok && r.data && r.data.initPoint) {
+      location.href = r.data.initPoint;
     } else {
-      setState({ payLoading: false, paymentError: (r.data && r.data.error) || 'No se pudo iniciar el pago con PayPal. Intenta de nuevo.' });
+      setState({ payLoading: false, paymentError: (r.data && r.data.error) || 'No se pudo iniciar el pago con Mercado Pago. Intenta de nuevo.' });
     }
   }).catch(() => {
-    setState({ payLoading: false, paymentError: 'No se pudo conectar con PayPal. Revisa tu internet e intenta de nuevo.' });
+    setState({ payLoading: false, paymentError: 'No se pudo conectar con Mercado Pago. Revisa tu internet e intenta de nuevo.' });
   });
 }
 
-// Se llama justo al regresar de la página de PayPal (o al terminar Apple
-// Pay), ya con la orden aprobada — confirma/cobra de verdad en el servidor
-// y marca el pedido como pagado (ver api/paypal.js, action=capture).
-function confirmarPagoPayPal(orderId, weekStart) {
+// Se llama justo al regresar de la página de Mercado Pago, ya con el pago
+// hecho (o intentado) — confirma/consulta de verdad el estado en el
+// servidor y marca el pedido como pagado (ver api/mercadopago.js,
+// action=capture). Si el pago quedó pendiente (por ejemplo, efectivo en
+// OXXO que todavía no se cobra), NO lo marca como pagado todavía — el
+// aviso automático (webhook) lo hará solo en cuanto se confirme, aunque la
+// persona ya haya cerrado la app.
+function confirmarPagoMercadoPago(paymentId, weekStart) {
   const { total } = computeWeekTotalNumber(computeDiasConPedido());
-  apiFetch('/api/paypal', {
+  apiFetch('/api/mercadopago', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + state.authToken },
-    body: { action: 'capture', orderId: orderId, weekStart: weekStart, totalCents: Math.round((total || 0) * 100) }
+    body: { action: 'capture', paymentId: paymentId, weekStart: weekStart, totalCents: Math.round((total || 0) * 100) }
   }).then((r) => {
     if (r.ok && r.data && r.data.ok) {
-      setState({ screen: 'pagoOk', lastPaymentId: r.data.paymentId || orderId, paymentError: '', payLoading: false });
+      setState({ screen: 'pagoOk', lastPaymentId: r.data.paymentId || paymentId, paymentError: '', payLoading: false });
       loadOrderHistory();
+    } else if (r.data && r.data.pendiente) {
+      setState({ screen: 'pago', payLoading: false, paymentError: r.data.error || 'Tu pago quedó pendiente de confirmar.' });
     } else {
-      setState({ payLoading: false, paymentError: (r.data && r.data.error) || 'No pudimos confirmar tu pago con PayPal. Si ya viste el cargo en tu cuenta, contáctanos.' });
+      setState({ payLoading: false, paymentError: (r.data && r.data.error) || 'No pudimos confirmar tu pago con Mercado Pago. Si ya viste el cargo en tu cuenta, contáctanos.' });
     }
   }).catch(() => {
     setState({ payLoading: false, paymentError: 'No pudimos confirmar tu pago (sin conexión). Si ya te cobraron, contáctanos.' });
   });
-}
-
-// Apple Pay, a través del mismo PayPal (solo en iPhone/iPad/Mac con
-// Safari, y solo si la cuenta de PayPal de ZANO ya tiene Apple Pay
-// habilitado y el dominio verificado — ver README). Si algo de eso falta,
-// sencillamente no aparece este botón y la persona paga con el de arriba
-// (PayPal/tarjeta) sin ningún problema — nunca truena la pantalla.
-function montarApplePayBoton(amount) {
-  const container = document.getElementById('applepay-button-container');
-  if (!container) return;
-  container.innerHTML = '';
-  if (!window.ApplePaySession || !ApplePaySession.canMakePayments()) return;
-  if (typeof paypal === 'undefined' || !paypal.Applepay) return;
-
-  const applepay = paypal.Applepay();
-  applepay.config().then((cfg) => {
-    if (!cfg || !cfg.isEligible) return;
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.textContent = 'Pagar con  Apple Pay';
-    btn.className = 'pill-btn';
-    btn.style.background = '#000000';
-    btn.style.color = '#FFFFFF';
-    btn.style.width = '100%';
-    btn.onclick = function () { iniciarApplePay(cfg, amount); };
-    container.appendChild(btn);
-  }).catch(() => { /* si falla, no mostramos el botón — el de arriba sigue funcionando normal */ });
-}
-
-function iniciarApplePay(cfg, amount) {
-  if (!state.authToken) {
-    setState({ paymentError: 'Necesitas iniciar sesión para pagar.' });
-    return;
-  }
-  const applepay = paypal.Applepay();
-  const request = {
-    countryCode: cfg.countryCode,
-    currencyCode: 'MXN',
-    merchantCapabilities: cfg.merchantCapabilities,
-    supportedNetworks: cfg.supportedNetworks,
-    requiredBillingContactFields: ['name', 'email'],
-    total: { label: 'ZANO', amount: amount.toFixed(2), type: 'final' }
-  };
-  const session = new ApplePaySession(4, request);
-
-  session.onvalidatemerchant = function (event) {
-    applepay.validateMerchant({ validationUrl: event.validationURL, displayName: 'ZANO' })
-      .then((result) => session.completeMerchantValidation(result.merchantSession))
-      .catch((err) => {
-        console.error('Apple Pay — error validando comercio:', err);
-        session.abort();
-        setState({ paymentError: 'No se pudo iniciar Apple Pay. Usa el botón de PayPal/tarjeta de arriba.' });
-      });
-  };
-
-  session.onpaymentauthorized = function (event) {
-    const weekStart = computeWeekStartISO();
-    apiFetch('/api/paypal', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + state.authToken },
-      body: { action: 'create', weekStart: weekStart, totalCents: Math.round(amount * 100) }
-    }).then((r) => {
-      if (!r.ok || !r.data || !r.data.orderId) {
-        session.completePayment(ApplePaySession.STATUS_FAILURE);
-        setState({ paymentError: (r.data && r.data.error) || 'No se pudo iniciar el pago.' });
-        return;
-      }
-      applepay.confirmOrder({
-        orderId: r.data.orderId,
-        token: event.payment.token,
-        billingContact: event.payment.billingContact
-      }).then(() => {
-        session.completePayment(ApplePaySession.STATUS_SUCCESS);
-        confirmarPagoPayPal(r.data.orderId, weekStart);
-      }).catch((err) => {
-        console.error('Apple Pay — error confirmando orden:', err);
-        session.completePayment(ApplePaySession.STATUS_FAILURE);
-        setState({ paymentError: 'No se pudo confirmar el pago con Apple Pay. Usa el botón de PayPal/tarjeta de arriba.' });
-      });
-    }).catch(() => {
-      session.completePayment(ApplePaySession.STATUS_FAILURE);
-      setState({ paymentError: 'No se pudo conectar con el servidor. Intenta de nuevo.' });
-    });
-  };
-
-  session.oncancel = function () {
-    setState({ paymentError: '' });
-  };
-
-  session.begin();
 }
 
 function logout() {
@@ -2788,9 +2696,8 @@ function renderPago() {
           ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
           <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">Agrega al menos un platillo a tu semana para poder pagar.</span>
         </div>` : `
-        <button onclick="iniciarPagoPayPal()" ${state.payLoading ? 'disabled' : ''} class="pill-btn" style="width:100%;text-align:center;opacity:${state.payLoading ? '0.6' : '1'};">${state.payLoading ? 'Conectando con PayPal…' : 'Pagar con PayPal o tarjeta'}</button>
-        <div id="applepay-button-container" style="width:100%;"></div>
-        <p style="margin:0;font-size:11px;line-height:1.4;color:#9AA096;text-align:center;">Te lleva a la página segura de PayPal para terminar tu pago (con tu cuenta de PayPal o con tarjeta de crédito/débito, sin necesitar cuenta) — se te cobrará de verdad al confirmar, y en cuanto termines regresas aquí mismo solo.</p>`}
+        <button onclick="iniciarPagoMercadoPago()" ${state.payLoading ? 'disabled' : ''} class="pill-btn" style="width:100%;text-align:center;opacity:${state.payLoading ? '0.6' : '1'};">${state.payLoading ? 'Conectando con Mercado Pago…' : 'Pagar con Mercado Pago'}</button>
+        <p style="margin:0;font-size:11px;line-height:1.4;color:#9AA096;text-align:center;">Te lleva a la página segura de Mercado Pago para terminar tu pago (tarjeta de crédito/débito, saldo de Mercado Pago, efectivo en OXXO o transferencia, sin necesitar cuenta) — se te cobrará de verdad al confirmar, y en cuanto termines regresas aquí mismo solo.</p>`}
       </div>
     </div>
   `;
@@ -2846,9 +2753,9 @@ function renderPerfil() {
   const isProximos = state.historialTab === 'proximos';
 
   const metodosPago = [
-    { label: 'Tarjeta de crédito o débito', detalle: 'Vía PayPal, al momento de pagar' },
-    { label: 'PayPal', detalle: 'Con tu cuenta o saldo de PayPal' },
-    { label: 'Apple Pay', detalle: 'En iPhone/iPad/Mac con Safari, cuando esté disponible' }
+    { label: 'Tarjeta de crédito o débito', detalle: 'Vía Mercado Pago, al momento de pagar' },
+    { label: 'Mercado Pago', detalle: 'Con tu cuenta o saldo de Mercado Pago' },
+    { label: 'Efectivo en OXXO o transferencia', detalle: 'Cuando esté disponible, según lo que ZANO tenga activado' }
   ];
 
   const proxima = computeProximaRecoleccion();
@@ -3111,15 +3018,13 @@ function render() {
 
   if (state.screen === 'pago') {
     const diasConPedido = computeDiasConPedido();
-    const { total, complete } = computeWeekTotalNumber(diasConPedido);
+    const { total } = computeWeekTotalNumber(diasConPedido);
     guardarPedidoBackend(total);
-    // El botón principal de PayPal/tarjeta ya es un botón normal de la
-    // app (ver renderPago) — no hay nada que "montar" para ese. Aquí solo
-    // se checa si se puede mostrar el botón de Apple Pay (aparece solo,
-    // si el dispositivo/cuenta lo soportan).
-    if (complete && total > 0) {
-      montarApplePayBoton(total);
-    }
+    // El botón de pagar ya es un botón normal de la app (ver renderPago) —
+    // no hay nada más que "montar" aquí (a diferencia de antes con PayPal,
+    // ya no hace falta un SDK aparte para el botón de Apple Pay: Mercado
+    // Pago lo muestra solo, dentro de su propia página de pago, si la
+    // cuenta lo tiene habilitado).
   }
 
   // Si entras a Perfil (o a Inicio, donde vive "Pedir lo mismo") y todavía
@@ -3242,26 +3147,29 @@ if (location.hash === '#admin') {
   state = { ...state, screen: 'staffLogin' };
 }
 
-// Regreso desde la página de pago de PayPal (ver api/paypal.js e
-// iniciarPagoPayPal más arriba): en vez de una ventanita que se podía
-// quedar atorada, ahora el pago manda a la página de verdad de PayPal, y
-// ella sola regresa aquí cuando la persona termina o cancela — eso se
-// detecta con "zpay" en la dirección ("1" = aprobado, falta cobrar/
-// confirmar; "0" = canceló). Se quita de la dirección en cuanto se lee,
-// para que recargar la página no intente cobrar dos veces.
+// Regreso desde la página de pago de Mercado Pago (ver api/mercadopago.js e
+// iniciarPagoMercadoPago más arriba): en vez de una ventanita que se podía
+// quedar atorada, el pago manda a la página de verdad de Mercado Pago, y
+// ella sola regresa aquí cuando la persona termina, cancela, o deja el
+// pago pendiente (por ejemplo, pagando en efectivo en OXXO) — eso se
+// detecta con "zpay" en la dirección ("1" = aprobado, falta confirmar;
+// "0" = canceló/rechazado; "2" = quedó pendiente). El "payment_id" lo
+// agrega Mercado Pago solo, junto a nuestro propio "zpay"/"week". Se quita
+// todo de la dirección en cuanto se lee, para que recargar la página no
+// intente cobrar dos veces.
 (function () {
   const params = new URLSearchParams(location.search);
   const zpay = params.get('zpay');
-  if (zpay !== '1' && zpay !== '0') return;
+  if (zpay !== '1' && zpay !== '0' && zpay !== '2') return;
   const weekStartVuelta = params.get('week') || '';
-  const orderId = params.get('token') || '';
+  const paymentId = params.get('payment_id') || '';
   history.replaceState(null, '', location.pathname + location.hash);
 
   // Recupera el pedido (platillos/horarios/plantel) que ya se había
   // guardado solo en este teléfono justo antes de mandar a pagar (se
   // guarda solo, en cada cambio — ver saveOfflineSnapshot), para que la
   // pantalla no se vea vacía después de la recarga que implica ir y
-  // volver de la página de PayPal.
+  // volver de la página de Mercado Pago.
   const snap = loadOfflineSnapshot();
   if (snap && (!weekStartVuelta || snap.weekStart === weekStartVuelta)) {
     state = {
@@ -3273,18 +3181,21 @@ if (location.hash === '#admin') {
   }
 
   if (zpay === '0') {
-    state = { ...state, screen: 'pago', paymentError: 'Cancelaste el pago. Puedes intentarlo de nuevo cuando quieras.' };
-  } else if (orderId && weekStartVuelta && state.authToken) {
+    state = { ...state, screen: 'pago', paymentError: 'Cancelaste el pago (o no se pudo confirmar). Puedes intentarlo de nuevo cuando quieras.' };
+  } else if (zpay === '2') {
+    state = { ...state, screen: 'pago', paymentError: 'Tu pago quedó pendiente de confirmar (por ejemplo, si vas a pagar en efectivo en OXXO). En cuanto se confirme, tu pedido queda agendado solo — te llegará un correo.' };
+  } else if (paymentId && weekStartVuelta && state.authToken) {
     state = { ...state, screen: 'pago', payLoading: true, paymentError: '' };
   } else {
-    state = { ...state, screen: 'pago', paymentError: 'No pudimos confirmar tu pago (faltó información al regresar de PayPal). Si ya te cobraron, contáctanos.' };
+    state = { ...state, screen: 'pago', paymentError: 'No pudimos confirmar tu pago (faltó información al regresar de Mercado Pago). Si ya te cobraron, contáctanos.' };
   }
 
-  // La confirmación real (cobrar y marcar el pedido pagado) se dispara
-  // después de la primera pantalla ya pintada, no aquí — así el usuario
-  // ve de inmediato "Conectando..." en vez de una pantalla en blanco.
-  if (zpay === '1' && orderId && weekStartVuelta && state.authToken) {
-    setTimeout(() => confirmarPagoPayPal(orderId, weekStartVuelta), 0);
+  // La confirmación real (consultar el pago y marcar el pedido pagado) se
+  // dispara después de la primera pantalla ya pintada, no aquí — así el
+  // usuario ve de inmediato "Conectando..." en vez de una pantalla en
+  // blanco.
+  if (zpay === '1' && paymentId && weekStartVuelta && state.authToken) {
+    setTimeout(() => confirmarPagoMercadoPago(paymentId, weekStartVuelta), 0);
   }
 })();
 
