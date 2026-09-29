@@ -130,7 +130,23 @@
 // título). El texto de "pagos seguros con PayPal" que se pidió quitar no se
 // encontró en ninguna pantalla de la app — se le pidió al dueño una captura
 // de pantalla para ubicarlo exactamente.
-const CACHE_NAME = 'zano-shell-v43';
+// v44: ahora entrar a Administración y a Cocina pide correo Y contraseña
+// (antes solo pedía contraseña). El correo tiene que estar en una lista
+// guardada en el servidor (ADMIN_EMAILS y STAFF_EMAILS) — no es una cuenta
+// de verdad, es un segundo dato que debe coincidir, como una segunda
+// contraseña. Cada vez que alguien entra a Administración o a Cocina, te
+// llega un correo a zano.ayuda@gmail.com diciendo con cuál correo se entró.
+// v45: Cocina y Administración ahora se sincronizan con los croissants. En
+// Cocina, el contador de croissants se dividió en dos (Efectivo / Tarjeta) —
+// cada toque de "+" registra esa venta de hoy con cómo se cobró. En
+// Administración, Resumen e Historial ya muestran esas ventas de croissants
+// de la semana (aparte de Ganancia bruta/neta, sin mezclarse), y en Gastos
+// se agregó "Precio del croissant" (un valor fijo que tú capturas una vez)
+// para poder calcular esas ventas en dinero. Como todos los demás
+// platillos del menú se pagan con anticipación en la app, no se agregó
+// ningún registro nuevo para ellos — solo para los croissants, que son lo
+// único que se vende en el momento.
+const CACHE_NAME = 'zano-shell-v45';
 const APP_SHELL = [
   './',
   './index.html',
