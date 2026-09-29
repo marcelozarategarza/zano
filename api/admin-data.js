@@ -71,11 +71,26 @@ module.exports = async function handler(req, res) {
        FROM weekly_costs ORDER BY week_start DESC`
     );
 
-    // Valor de referencia fijo (una sola fila, id=1) para Ganancia neta. Si
-    // por lo que sea la fila no existe todavía (por ejemplo, si aún no has
-    // vuelto a correr schema.sql), se trata como $0 en vez de tronar.
+    // Valor de referencia fijo para Ganancia neta, y precio del croissant
+    // (una sola fila, id=1). Si por lo que sea la fila no existe todavía
+    // (por ejemplo, si aún no has vuelto a correr schema.sql), se trata como
+    // $0 en vez de tronar.
     const settingsRes = await pool.query(
-      `SELECT meta_recuperacion_cents FROM business_settings WHERE id = 1`
+      `SELECT meta_recuperacion_cents, croissant_price_cents FROM business_settings WHERE id = 1`
+    );
+
+    // Ventas de croissants (los únicos que se venden en el momento, sin
+    // pedido previo — ver croissant_sales en schema.sql), agrupadas por
+    // semana Y por cómo se cobraron. Se muestran APARTE de las ventas de
+    // platillos con pedido previo, no se suman a Ganancia bruta/neta.
+    // date_trunc('week', ...) en Postgres regresa el lunes de esa semana,
+    // igual que weekStart en todo lo demás de este archivo.
+    const croissantsRes = await pool.query(
+      `SELECT date_trunc('week', day)::date::text AS week_start, payment_method, SUM(quantity)::int AS qty
+       FROM croissant_sales
+       WHERE day >= (CURRENT_DATE - INTERVAL '182 days')
+       GROUP BY 1, 2
+       ORDER BY 1 DESC`
     );
 
     const weeksMap = new Map();
@@ -143,6 +158,29 @@ module.exports = async function handler(req, res) {
     }));
 
     const metaRecuperacionCents = settingsRes.rows[0] ? (settingsRes.rows[0].meta_recuperacion_cents || 0) : 0;
+    const croissantPriceCents = settingsRes.rows[0] ? (settingsRes.rows[0].croissant_price_cents || 0) : 0;
+
+    const croissantsMap = new Map();
+    for (const c of croissantsRes.rows) {
+      const wk = c.week_start;
+      if (!croissantsMap.has(wk)) {
+        croissantsMap.set(wk, { weekStart: wk, efectivoQty: 0, tarjetaQty: 0 });
+      }
+      const cw = croissantsMap.get(wk);
+      if (c.payment_method === 'efectivo') cw.efectivoQty += c.qty || 0;
+      else if (c.payment_method === 'tarjeta') cw.tarjetaQty += c.qty || 0;
+    }
+    const croissants = Array.from(croissantsMap.values())
+      .sort((a, b) => b.weekStart.localeCompare(a.weekStart))
+      .map((cw) => ({
+        weekStart: cw.weekStart,
+        efectivoQty: cw.efectivoQty,
+        tarjetaQty: cw.tarjetaQty,
+        totalQty: cw.efectivoQty + cw.tarjetaQty,
+        efectivoCents: cw.efectivoQty * croissantPriceCents,
+        tarjetaCents: cw.tarjetaQty * croissantPriceCents,
+        totalCents: (cw.efectivoQty + cw.tarjetaQty) * croissantPriceCents
+      }));
 
     res.status(200).json({
       customers: customersRes.rows.map((u) => ({
@@ -156,7 +194,9 @@ module.exports = async function handler(req, res) {
       weeks,
       topDishesAllTime,
       costs,
-      metaRecuperacionCents
+      metaRecuperacionCents,
+      croissantPriceCents,
+      croissants
     });
   } catch (err) {
     console.error('[admin-data] Error:', err);
