@@ -88,7 +88,49 @@
 // de PayPal de ZANO ya lo tenga habilitado) — si no está disponible,
 // simplemente no aparece ese botón y el de PayPal/tarjeta sigue
 // funcionando normal.
-const CACHE_NAME = 'zano-shell-v38';
+// v39: se cambió cómo se calculan Ganancia bruta y Ganancia neta en el
+// panel de administración (pestaña Resumen). Ganancia bruta ahora resta 5
+// gastos en vez de 3: Ingredientes, Empaque, Comisión al instituto (nuevo),
+// Salario del staff (nuevo) y Otros gastos — todos capturados por semana en
+// la pestaña "Gastos". Ganancia neta cambió por completo: ya NO depende de
+// los gastos de la semana; ahora es un "valor de referencia" fijo (que tú
+// capturas UNA SOLA VEZ, no cambia semana a semana) menos $20 por cada
+// pedido pagado de esa semana. El valor de referencia se edita también en
+// la pestaña "Gastos", en su propio recuadro separado del formulario por
+// semana.
+// v40: se agregó la pestaña "Historial" en el panel de administración —
+// muestra, una debajo de otra, TODAS las semanas con pedidos pagados (de la
+// más reciente a la más antigua) con sus 4 datos: Ventas, Pedidos pagados,
+// Ganancia bruta y Ganancia neta. Es solo para ver el historial completo de
+// un vistazo, sin tener que ir cambiando de semana en el selector de la
+// pestaña Resumen.
+// v41: se corrigió el botón "Exportar a Excel" del panel de administración
+// — desde el cambio de fórmulas se había quedado usando las de ANTES
+// (restaba solo Ingredientes+Empaque+Otros gastos de las ventas, sin
+// Comisión al instituto ni Salario del staff, y le seguía llamando
+// "Ganancia neta" a lo que ahora es Ganancia bruta). Ahora la hoja
+// "Resumen semanal" trae ambas columnas correctas (Ganancia bruta Y
+// Ganancia neta, cada una con su propia fórmula), más las columnas de los
+// 2 gastos nuevos; la hoja "Gastos" también los incluye; y se agregó una
+// hoja nueva "Valor de referencia" mostrando el valor fijo que usas para
+// Ganancia neta.
+// v42: cambio grande en cómo se calculan los gastos de la semana. Antes
+// escribías a mano Ingredientes, Empaque, Comisión al instituto y Salario
+// del staff cada semana. Ahora esos 4 (más uno nuevo, "Pago de inversión")
+// se calculan SOLOS, platillo por platillo vendido: de cada platillo se
+// reparten siempre $70 ($20 sueldo del jefe, $20 sueldo de los dos
+// cocineros, $10 comisión al instituto, $20 pago de inversión) y el resto
+// del precio del platillo es el costo real de Ingredientes (empaque ya va
+// incluido ahí, por eso se quitó ese campo). Lo único que sigues metiendo a
+// mano en la pestaña "Gastos" es "Otros gastos" (transporte, gas, etc.) y
+// las notas. También se corrigió el Excel exportado para que muestre este
+// mismo desglose.
+// v43: en la portada, se cambió el texto "Recógelo en tu escuela" por
+// "Recógela cuando quieras" (uno de los 3 recuadros con ícono debajo del
+// título). El texto de "pagos seguros con PayPal" que se pidió quitar no se
+// encontró en ninguna pantalla de la app — se le pidió al dueño una captura
+// de pantalla para ubicarlo exactamente.
+const CACHE_NAME = 'zano-shell-v43';
 const APP_SHELL = [
   './',
   './index.html',
