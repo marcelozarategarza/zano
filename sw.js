@@ -160,7 +160,22 @@
 // pagados para alcanzar el valor de referencia. Se actualizó en Resumen,
 // Historial (mostrando el acumulado hasta cada semana) y en el Excel
 // exportado, con una nota nueva explicando el número de pedidos acumulados.
-const CACHE_NAME = 'zano-shell-v47';
+
+// v48: se reemplazó PayPal por Mercado Pago para cobrar dentro de la app
+// (el dueño ya tiene su cuenta lista). El botón de pagar ahora manda a la
+// página segura de Mercado Pago (api/mercadopago.js, nuevo — reemplaza a
+// api/paypal.js) en vez de a PayPal; ahí ya aparecen automáticamente todos
+// los métodos de pago que tenga activados esa cuenta (tarjeta, saldo,
+// efectivo en OXXO, transferencia, etc.), así que ya no hace falta un
+// botón aparte de Apple Pay ni su SDK — se quitó junto con el SDK de
+// PayPal, la app carga más ligera. Nuevo: si un pago queda pendiente (por
+// ejemplo, alguien que va a pagar en efectivo en OXXO), Mercado Pago avisa
+// solo al servidor en cuanto se confirme ese efectivo (aunque la persona
+// ya haya cerrado la app), y el pedido se marca pagado automáticamente en
+// ese momento. Falta que el dueño agregue MERCADOPAGO_ACCESS_TOKEN en las
+// variables de entorno de Vercel para que el cobro real funcione (ver
+// README).
+const CACHE_NAME = 'zano-shell-v48';
 const APP_SHELL = [
   './',
   './index.html',
