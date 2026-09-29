@@ -57,8 +57,21 @@ function getStaffFromRequest(req) {
   return (payload.role === 'staff' || payload.role === 'admin') ? payload : null;
 }
 
+// Compara un correo escrito contra una lista de correos permitidos guardada
+// en una variable de entorno de Vercel (ADMIN_EMAILS o STAFF_EMAILS),
+// separados por comas — ej. "correo1@gmail.com,correo2@gmail.com". No
+// importan mayúsculas ni espacios de más. Se usa junto con la contraseña
+// compartida de Admin/Cocina: ambas cosas tienen que coincidir para entrar.
+function emailPermitido(email, listaEnv) {
+  if (!email || !listaEnv) return false;
+  const dado = String(email).trim().toLowerCase();
+  const permitidos = String(listaEnv).split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+  return permitidos.includes(dado);
+}
+
 module.exports = {
   signToken, verifyToken, getUserFromRequest,
   signAdminToken, getAdminFromRequest,
-  signStaffToken, getStaffFromRequest
+  signStaffToken, getStaffFromRequest,
+  emailPermitido
 };
