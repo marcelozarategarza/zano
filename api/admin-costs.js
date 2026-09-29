@@ -6,8 +6,8 @@
 //
 // También guarda aquí el "valor de referencia" para Ganancia neta (un solo
 // valor fijo, no por semana) — se metió en este mismo archivo, en vez de
-// crear uno nuevo, porque el plan gratuito de Vercel limita a 12 funciones y
-// el proyecto ya está justo en ese tope (ver nota en api/paypal.js). Se
+// crear uno nuevo, porque el plan gratuito de Vercel limita a 12 funciones
+// (ver nota en api/mercadopago.js). Se
 // distingue por el campo "tipo" que manda la app:
 //   tipo: 'semana' (o sin "tipo", para no romper nada que ya funcionaba)
 //         -> guarda Otros gastos y notas de una semana.
