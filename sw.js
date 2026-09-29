@@ -146,7 +146,21 @@
 // platillos del menú se pagan con anticipación en la app, no se agregó
 // ningún registro nuevo para ellos — solo para los croissants, que son lo
 // único que se vende en el momento.
-const CACHE_NAME = 'zano-shell-v45';
+// v46: en Historial (panel de Admin), las ventas presenciales de croissants
+// ya no aparecen mezcladas dentro de la misma tarjeta que las ventas en
+// línea — ahora son dos listas completamente separadas, cada una con su
+// propio encabezado: "Ventas en línea" y "Ventas presenciales — Croissants".
+// v47: se corrigió la fórmula de Ganancia neta — el dueño reportó que el
+// número debía salir negativo y que lo que antes se restaba ahora se debía
+// sumar. Antes era: valor de referencia − $20 por cada pedido pagado DE ESA
+// SEMANA. Ahora es al revés y acumulado: $20 por cada pedido pagado
+// ACUMULADO de todas las semanas (sumando semana tras semana, no solo la
+// que estás viendo) MENOS el valor de referencia. Por eso hoy puede salir
+// negativa: significa que todavía no se han juntado suficientes pedidos
+// pagados para alcanzar el valor de referencia. Se actualizó en Resumen,
+// Historial (mostrando el acumulado hasta cada semana) y en el Excel
+// exportado, con una nota nueva explicando el número de pedidos acumulados.
+const CACHE_NAME = 'zano-shell-v47';
 const APP_SHELL = [
   './',
   './index.html',
