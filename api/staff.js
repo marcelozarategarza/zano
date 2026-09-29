@@ -5,10 +5,11 @@
 //   POST /api/staff?action=login          { password }
 //   GET  /api/staff?action=data
 //   POST /api/staff?action=update-status  { orderId, dia, status }
-//   POST /api/staff?action=croissant      { delta }
+//   POST /api/staff?action=croissant      { delta, metodo: 'efectivo'|'tarjeta' }
 const { getPool } = require('./_db');
-const { signStaffToken, getStaffFromRequest } = require('./_auth');
+const { signStaffToken, getStaffFromRequest, emailPermitido } = require('./_auth');
 const { getClientIp, checkThrottle, registerFail, registerSuccess } = require('./_throttle');
+const { notificarDueño } = require('./_email');
 
 const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
 const ESTATUS_VALIDOS = ['pendiente', 'en_proceso', 'listo', 'entregado'];
@@ -28,12 +29,19 @@ function weekStartISO() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+// Igual que Admin: pide correo (tiene que estar en STAFF_EMAILS, variable de
+// entorno con uno o varios correos separados por coma) + la contraseña
+// compartida (STAFF_PASSWORD). El correo no tiene que existir de verdad,
+// solo tiene que coincidir con la lista. Avisa por correo a
+// zano.ayuda@gmail.com con cuál de los correos se usó para entrar.
 async function handleLogin(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Método no permitido.' }); return; }
   try {
-    const { password } = req.body || {};
+    const { email, password } = req.body || {};
     const real = process.env.STAFF_PASSWORD;
     if (!real) { res.status(500).json({ error: 'Falta configurar STAFF_PASSWORD en el servidor.' }); return; }
+    if (!process.env.STAFF_EMAILS) { res.status(500).json({ error: 'Falta configurar STAFF_EMAILS en el servidor.' }); return; }
+    if (!email || !password) { res.status(400).json({ error: 'Escribe el correo y la contraseña.' }); return; }
 
     // Igual que en admin-login: una sola contraseña compartida, así que el
     // límite de intentos se cuenta por IP en vez de por cuenta.
@@ -45,13 +53,22 @@ async function handleLogin(req, res) {
       return;
     }
 
-    if (!password || password !== real) {
+    // Mensaje genérico en ambos casos (correo no permitido o contraseña
+    // mala), igual que en admin-login.
+    if (!emailPermitido(email, process.env.STAFF_EMAILS) || password !== real) {
       await registerFail(pool, 'staff', ip);
-      res.status(401).json({ error: 'Contraseña incorrecta.' });
+      res.status(401).json({ error: 'Correo o contraseña incorrectos.' });
       return;
     }
     await registerSuccess(pool, 'staff', ip);
     const token = signStaffToken();
+
+    const emailLower = String(email).trim().toLowerCase();
+    notificarDueño(
+      'ZANO: inicio de sesión en Cocina',
+      `Se inició sesión en el panel de Cocina con el correo: ${emailLower}.`
+    ).catch((err) => { console.error('[staff:login] Error avisando inicio de sesión:', err); });
+
     res.status(200).json({ token });
   } catch (err) {
     console.error('[staff:login] Error:', err);
@@ -99,8 +116,17 @@ async function handleData(req, res) {
     }
     rows.sort((a, b) => DIAS.indexOf(a.dia) - DIAS.indexOf(b.dia) || (a.horario || '').localeCompare(b.horario || ''));
 
-    const croissantRes = await pool.query(`SELECT count FROM croissant_counts WHERE day = CURRENT_DATE`);
-    const croissantHoy = croissantRes.rows[0] ? croissantRes.rows[0].count : 0;
+    // Croissants de hoy, separados por cómo se cobraron (ver croissant_sales
+    // en schema.sql) — reemplaza al viejo contador único croissant_counts.
+    const croissantRes = await pool.query(
+      `SELECT payment_method, quantity FROM croissant_sales WHERE day = CURRENT_DATE`
+    );
+    const croissantHoy = { efectivo: 0, tarjeta: 0 };
+    for (const row of croissantRes.rows) {
+      if (row.payment_method === 'efectivo' || row.payment_method === 'tarjeta') {
+        croissantHoy[row.payment_method] = row.quantity || 0;
+      }
+    }
 
     res.status(200).json({ weekStart, rows, croissantHoy });
   } catch (err) {
@@ -131,22 +157,29 @@ async function handleUpdateStatus(req, res) {
   }
 }
 
+// Registra la venta (o resta una, si se tocó por error) de un croissant,
+// separado por cómo se cobró — efectivo o tarjeta. La fecha siempre es HOY
+// (automática, CURRENT_DATE del servidor) y cada toque de "+" ya cuenta como
+// venta confirmada, para que cocina no tenga que llenar un formulario aparte
+// a media prisa. Con esto Administración arma las ventas de croissants por
+// semana usando el precio que se capture en business_settings.
 async function handleCroissant(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Método no permitido.' }); return; }
   const staff = getStaffFromRequest(req);
   if (!staff) { res.status(401).json({ error: 'Sesión inválida o vencida.' }); return; }
   try {
     const delta = (req.body && req.body.delta === -1) ? -1 : 1;
+    const metodo = (req.body && req.body.metodo === 'tarjeta') ? 'tarjeta' : 'efectivo';
     const pool = getPool();
     const r = await pool.query(
-      `INSERT INTO croissant_counts (day, count, updated_at)
-       VALUES (CURRENT_DATE, GREATEST($1, 0), now())
-       ON CONFLICT (day) DO UPDATE
-         SET count = GREATEST(croissant_counts.count + $1, 0), updated_at = now()
-       RETURNING count`,
-      [delta]
+      `INSERT INTO croissant_sales (day, payment_method, quantity, updated_at)
+       VALUES (CURRENT_DATE, $2, GREATEST($1, 0), now())
+       ON CONFLICT (day, payment_method) DO UPDATE
+         SET quantity = GREATEST(croissant_sales.quantity + $1, 0), updated_at = now()
+       RETURNING quantity`,
+      [delta, metodo]
     );
-    res.status(200).json({ ok: true, count: r.rows[0].count });
+    res.status(200).json({ ok: true, metodo, count: r.rows[0].quantity });
   } catch (err) {
     console.error('[staff:croissant] Error:', err);
     res.status(500).json({ error: 'Error del servidor al actualizar el conteo.' });
