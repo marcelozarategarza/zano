@@ -401,6 +401,14 @@ let state = {
   resetError: '',
   resetLoading: false,
 
+  // Verificación de correo al crear cuenta (ver pantalla "verificar" y
+  // api/register.js, action=verify/resend). Mientras no se verifique, la
+  // app funciona casi normal — solo no se puede pagar (ver renderPago()).
+  verifyEmail: '',
+  verifyCode: '',
+  verifyError: '',
+  verifyLoading: false,
+
   // Panel de administración (solo para ti — ver /#admin). Independiente de
   // la sesión de un cliente: usa su propia contraseña y su propio token.
   adminToken: '',
@@ -860,7 +868,19 @@ async function submitAuth() {
     try {
       const r = await apiFetch('/api/register', { method: 'POST', body: { name, email, password, phone: '' } });
       if (r.ok && r.data && r.data.token) {
-        setState({ screen: 'inicio', user: r.data.user, authToken: r.data.token, authError: '', authName: '', authEmail: '', authPassword: '' });
+        // emailVerified viene del backend; si no viene (no debería pasar en
+        // este flujo), lo tratamos como ya verificado para no bloquear a
+        // nadie por error.
+        const verificado = !r.data.user || r.data.user.emailVerified !== false;
+        setState({
+          screen: verificado ? 'inicio' : 'verificar',
+          user: r.data.user,
+          authToken: r.data.token,
+          authError: '',
+          authName: '', authEmail: '', authPassword: '',
+          verifyEmail: (r.data.user && r.data.user.email) || email,
+          verifyCode: '', verifyError: ''
+        });
         loadOrderHistory();
         manejadoPorBackend = true;
       } else if (r.data && r.data.error) {
@@ -887,7 +907,16 @@ async function submitAuth() {
     try {
       const r = await apiFetch('/api/login', { method: 'POST', body: { email, password } });
       if (r.ok && r.data && r.data.token) {
-        setState({ screen: 'inicio', user: r.data.user, authToken: r.data.token, authError: '', authEmail: '', authPassword: '' });
+        const verificado = !r.data.user || r.data.user.emailVerified !== false;
+        setState({
+          screen: verificado ? 'inicio' : 'verificar',
+          user: r.data.user,
+          authToken: r.data.token,
+          authError: '',
+          authEmail: '', authPassword: '',
+          verifyEmail: (r.data.user && r.data.user.email) || email,
+          verifyCode: '', verifyError: ''
+        });
         loadOrderHistory();
         manejadoPorBackend = true;
       } else if (r.data && r.data.error) {
@@ -996,6 +1025,48 @@ async function submitResetPassword() {
     }
   } catch (e) {
     setState({ resetLoading: false, resetError: 'No hay conexión con el servidor. Revisa tu internet e intenta de nuevo.' });
+  }
+}
+
+// ---------------------------------------------------------------------
+// Verificación de correo al crear cuenta (ver api/register.js, action=verify
+// y action=resend). Mientras no se verifique, la cuenta sigue funcionando
+// casi normal — solo no se puede pagar (ver renderPago()).
+// ---------------------------------------------------------------------
+async function submitVerifyCode() {
+  const codeInput = document.getElementById('verify-code');
+  const code = codeInput ? codeInput.value.trim() : '';
+  if (!code) {
+    setState({ verifyError: 'Ingresa el código de 6 dígitos que te mandamos por correo.', verifyCode: code });
+    return;
+  }
+  setState({ verifyError: '', verifyLoading: true, verifyCode: code });
+  try {
+    const r = await apiFetch('/api/register', { method: 'POST', body: { action: 'verify', email: state.verifyEmail, code } });
+    if (r.ok && r.data && r.data.ok) {
+      setState({
+        screen: 'inicio',
+        verifyLoading: false,
+        verifyError: '',
+        verifyCode: '',
+        user: state.user ? { ...state.user, emailVerified: true } : state.user
+      });
+    } else {
+      setState({ verifyLoading: false, verifyError: (r.data && r.data.error) || 'Ese código no es válido o ya venció. Pide uno nuevo.' });
+    }
+  } catch (e) {
+    setState({ verifyLoading: false, verifyError: 'No hay conexión con el servidor. Revisa tu internet e intenta de nuevo.' });
+  }
+}
+
+async function reenviarCodigoVerificacion() {
+  if (!state.verifyEmail) return;
+  setState({ verifyError: '', verifyLoading: true });
+  try {
+    await apiFetch('/api/register', { method: 'POST', body: { action: 'resend', email: state.verifyEmail } });
+    setState({ verifyLoading: false, verifyError: 'Te mandamos un código nuevo.', verifyCode: '' });
+  } catch (e) {
+    setState({ verifyLoading: false, verifyError: 'No se pudo reenviar el código. Intenta de nuevo.' });
   }
 }
 
@@ -1417,7 +1488,11 @@ function logout() {
     resetPassword: '',
     resetPassword2: '',
     resetError: '',
-    resetLoading: false
+    resetLoading: false,
+    verifyEmail: '',
+    verifyCode: '',
+    verifyError: '',
+    verifyLoading: false
   });
 }
 
@@ -1788,6 +1863,45 @@ function renderReset() {
         <button onclick="reenviarCodigoReset()" style="font-size:12.5px;font-weight:600;color:#2B5D3F;">Reenviar código</button>
         <button onclick="setState({screen:'auth', authMode:'login', forgotError:''})" style="font-size:12.5px;font-weight:600;color:#6B7268;">Volver a iniciar sesión</button>
       </div>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------
+// Render: Verifica tu correo (al crear cuenta, o al volver a entrar si
+// todavía no lo habías verificado)
+// ---------------------------------------------------------------------
+function renderVerificar() {
+  return `
+    <div style="display:flex;flex-direction:column;gap:22px;padding-top:16px;">
+      <div style="display:flex;align-items:center;gap:8px;justify-content:center;">
+        ${icon('leaf', { w: 26, h: 26, stroke: '#2B5D3F', sw: 1.7 })}
+        <span style="font-family:'Work Sans',sans-serif;font-size:22px;font-weight:700;letter-spacing:0.5px;color:#2B5D3F;">ZANO</span>
+      </div>
+
+      <div>
+        <h1 style="margin:0 0 6px 0;font-family:'Fraunces',serif;font-weight:600;font-size:26px;text-align:center;color:#1F2420;">Verifica tu correo</h1>
+        <p style="margin:0;font-size:13.5px;line-height:1.5;color:#6B7268;text-align:center;">Te mandamos un código de 6 dígitos a <strong>${esc(state.verifyEmail)}</strong>. Vence en 30 minutos.</p>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <label style="font-size:12.5px;font-weight:600;color:#1F2420;">Código de 6 dígitos</label>
+        <input id="verify-code" type="text" inputmode="numeric" maxlength="6" value="${esc(state.verifyCode)}" placeholder="000000">
+      </div>
+
+      ${state.verifyError ? `
+      <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;">
+        ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
+        <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">${esc(state.verifyError)}</span>
+      </div>` : ''}
+
+      <button onclick="submitVerifyCode()" class="pill-btn" ${state.verifyLoading ? 'disabled' : ''}>${state.verifyLoading ? 'Verificando…' : 'Verificar'}</button>
+
+      <div style="display:flex;justify-content:space-between;gap:12px;">
+        <button onclick="reenviarCodigoVerificacion()" style="font-size:12.5px;font-weight:600;color:#2B5D3F;">Reenviar código</button>
+        ${state.authToken ? `<button onclick="setState({screen:'inicio'})" style="font-size:12.5px;font-weight:600;color:#6B7268;">Hacerlo después</button>` : ''}
+      </div>
+      <p style="margin:0;font-size:11px;line-height:1.4;color:#9AA096;text-align:center;">Puedes seguir usando la app mientras tanto — solo vas a necesitar verificar tu correo antes de pagar tu pedido.</p>
     </div>
   `;
 }
@@ -2352,6 +2466,12 @@ function renderInicio() {
         <span style="font-family:'Work Sans',sans-serif;font-size:20px;font-weight:700;letter-spacing:0.5px;color:#2B5D3F;">ZANO</span>
       </div>
 
+      ${state.authToken && state.user && state.user.emailVerified === false ? `
+      <button onclick="setState({screen:'verificar', verifyEmail: state.user.email, verifyError:''})" style="display:flex;gap:8px;align-items:center;background:#F0ECE0;border-radius:12px;padding:12px 14px;text-align:left;">
+        ${icon('info', { w: 16, h: 16, stroke: '#6B7268', sw: 1.8 })}
+        <span style="font-size:12px;line-height:1.4;color:#6B7268;flex:1;">Todavía no verificas tu correo — lo vas a necesitar antes de pagar. Toca aquí para verificarlo.</span>
+      </button>` : ''}
+
       <div style="display:flex;flex-direction:column;gap:8px;">
         <button onclick="setState({pickerOpen: !state.pickerOpen})" class="card" style="width:100%;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;">
           <div style="display:flex;align-items:center;gap:10px;">
@@ -2643,6 +2763,7 @@ function renderPago() {
   const weekTotalLabel = computeWeekTotalLabel(diasConPedido);
   const { total: weekTotalNum, complete: weekTotalComplete } = computeWeekTotalNumber(diasConPedido);
   const canPay = weekTotalComplete && weekTotalNum > 0;
+  const correoSinVerificar = !!state.authToken && state.user && state.user.emailVerified === false;
 
   return `
     <div style="display:flex;flex-direction:column;height:100%;">
@@ -2695,7 +2816,12 @@ function renderPago() {
         <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;width:100%;box-sizing:border-box;">
           ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
           <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">Agrega al menos un platillo a tu semana para poder pagar.</span>
-        </div>` : `
+        </div>` : correoSinVerificar ? `
+        <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:12px 14px;width:100%;box-sizing:border-box;">
+          ${icon('info', { w: 16, h: 16, stroke: '#B4472A', sw: 1.8 })}
+          <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">Todavía no verificas tu correo — hace falta antes de poder pagar.</span>
+        </div>
+        <button onclick="setState({screen:'verificar', verifyEmail: state.user.email, verifyError:''})" class="pill-btn" style="width:100%;text-align:center;">Verificar mi correo</button>` : `
         <button onclick="iniciarPagoMercadoPago()" ${state.payLoading ? 'disabled' : ''} class="pill-btn" style="width:100%;text-align:center;opacity:${state.payLoading ? '0.6' : '1'};">${state.payLoading ? 'Conectando con Mercado Pago…' : 'Pagar con Mercado Pago'}</button>
         <p style="margin:0;font-size:11px;line-height:1.4;color:#9AA096;text-align:center;">Te lleva a la página segura de Mercado Pago para terminar tu pago (tarjeta de crédito/débito, saldo de Mercado Pago, efectivo en OXXO o transferencia, sin necesitar cuenta) — se te cobrará de verdad al confirmar, y en cuanto termines regresas aquí mismo solo.</p>`}
       </div>
@@ -2979,13 +3105,14 @@ function renderOffline() {
 function render() {
   const contentEl = document.getElementById('content');
   const navEl = document.getElementById('nav');
-  const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth' && state.screen !== 'perfilInfo' && state.screen !== 'forgot' && state.screen !== 'reset' && state.screen !== 'landing' && state.screen !== 'adminLogin' && state.screen !== 'admin' && state.screen !== 'offline' && state.screen !== 'staffLogin' && state.screen !== 'staff';
+  const showNav = state.screen !== 'pago' && state.screen !== 'pagoOk' && state.screen !== 'auth' && state.screen !== 'perfilInfo' && state.screen !== 'forgot' && state.screen !== 'reset' && state.screen !== 'verificar' && state.screen !== 'landing' && state.screen !== 'adminLogin' && state.screen !== 'admin' && state.screen !== 'offline' && state.screen !== 'staffLogin' && state.screen !== 'staff';
 
   let html = '';
   if (state.screen === 'landing') html = renderLanding();
   else if (state.screen === 'auth') html = renderAuth();
   else if (state.screen === 'forgot') html = renderForgot();
   else if (state.screen === 'reset') html = renderReset();
+  else if (state.screen === 'verificar') html = renderVerificar();
   else if (state.screen === 'adminLogin') html = renderAdminLogin();
   else if (state.screen === 'admin') html = renderAdmin();
   else if (state.screen === 'staffLogin') html = renderStaffLogin();
