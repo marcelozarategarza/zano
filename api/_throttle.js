@@ -12,9 +12,19 @@
 // "identificador" es a quién le contamos los intentos: el correo (en minúsculas)
 // para el login de clientes, o la IP de quien está tocando la puerta para
 // admin/cocina (ahí no hay una cuenta por persona, solo una contraseña compartida).
+//
+// Cuando se llega al máximo de intentos (5) y se bloquea, se manda un correo
+// a zano.ayuda@gmail.com avisando (reutiliza notificarDueño() de _email.js,
+// el mismo correo al que ya te llegan los avisos de pedidos pagados). Como
+// mientras dura el bloqueo checkThrottle() corta el intento ANTES de llegar
+// aquí, este aviso se manda una sola vez por cada bloqueo, no en cada intento.
+const { notificarDueño } = require('./_email');
+
 const MAX_INTENTOS = 5;
 const VENTANA_MINUTOS = 15; // si el último intento fallido fue hace más de esto, el conteo se reinicia
 const BLOQUEO_MINUTOS = 15; // cuánto dura el bloqueo una vez alcanzado el máximo
+
+const NOMBRE_SCOPE = { login: 'clientes', admin: 'administración', staff: 'cocina', reset: 'código de restablecer contraseña', verify: 'código de verificación de cuenta' };
 
 function getClientIp(req) {
   const fwd = req.headers['x-forwarded-for'];
@@ -79,6 +89,14 @@ async function registerFail(pool, scope, identifier) {
          SET fail_count = $3, last_fail_at = $4, locked_until = $5`,
       [scope, identifier, failCount, now, lockedUntil]
     );
+    if (lockedUntil) {
+      const quien = NOMBRE_SCOPE[scope] || scope;
+      notificarDueño(
+        'ZANO: bloqueo por intentos fallidos',
+        `Se superaron los ${MAX_INTENTOS} intentos de contraseña en el login de ${quien}. ` +
+        `Identificador: ${identifier}. Quedó bloqueado ${BLOQUEO_MINUTOS} minutos.`
+      ).catch((err) => { console.error('[throttle] Error avisando al dueño del bloqueo:', err); });
+    }
   } catch (err) {
     console.error('[throttle] Error al registrar intento fallido:', err);
   }
