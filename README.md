@@ -109,12 +109,16 @@ Desde ese momento, cada mensaje de Ayuda se manda solo a `zano.ayuda@gmail.com` 
 
 ## Cuentas guardadas y correos automáticos
 
-Esto activa cuatro correos que salen solos, sin que nadie tenga que confirmar nada en su propia app de correo:
+Esto activa estos correos que salen solos, sin que nadie tenga que confirmar nada en su propia app de correo:
 
-- **Bienvenida** al crear una cuenta (le llega a la persona que se registró).
+- **Verificación de correo** al crear una cuenta (le llega a la persona que se registró, con un código de 6 dígitos que tiene que escribir en la app — ver siguiente sección). Mientras no lo verifique, la cuenta sigue funcionando casi normal; solo no puede pagar su pedido hasta que lo haga.
 - **Aviso a ti** (`zano.ayuda@gmail.com`) cada vez que alguien crea una cuenta.
 - **Confirmación de pedido** en cuanto se completa un pago.
 - **Recordatorios**: cada jueves, a quien todavía no tenga pagado su pedido de la semana siguiente; y a quien haya llegado a la pantalla de Pagar y la haya dejado a medias por más de 3 horas sin pagar.
+
+### Verificación de correo al crear cuenta
+
+No necesitas configurar nada nuevo para esto — reutiliza la misma plantilla de EmailJS para clientes que ya configuras en el paso siguiente (2. Nueva plantilla de EmailJS). Al crear una cuenta, la persona recibe un código de 6 dígitos (vence en 30 minutos) y lo escribe en una pantalla nueva, "Verifica tu correo". Las cuentas que ya existían ANTES de subir este cambio quedan marcadas como verificadas automáticamente — a nadie se le pide retroactivamente un código que nunca le llegó.
 
 Para esto, las cuentas y los pedidos ya no viven solo en el navegador de cada quien — se guardan en una base de datos de verdad. Esto necesita tres cosas: una base de datos, un despliegue en Vercel (no GitHub Pages), y completar tu cuenta de EmailJS con una plantilla más.
 
