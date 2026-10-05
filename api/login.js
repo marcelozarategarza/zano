@@ -26,7 +26,7 @@ module.exports = async function handler(req, res) {
     }
 
     const result = await pool.query(
-      'SELECT id, name, email, phone, password_hash FROM users WHERE email = $1',
+      'SELECT id, name, email, phone, password_hash, email_verified FROM users WHERE email = $1',
       [emailLower]
     );
     if (result.rows.length === 0) {
@@ -42,7 +42,7 @@ module.exports = async function handler(req, res) {
       return;
     }
     await registerSuccess(pool, 'login', emailLower);
-    const user = { id: row.id, name: row.name, email: row.email, phone: row.phone || '' };
+    const user = { id: row.id, name: row.name, email: row.email, phone: row.phone || '', emailVerified: row.email_verified };
     const token = signToken(user);
     res.status(200).json({ token, user });
   } catch (err) {
