@@ -175,7 +175,17 @@
 // ese momento. Falta que el dueño agregue MERCADOPAGO_ACCESS_TOKEN en las
 // variables de entorno de Vercel para que el cobro real funcione (ver
 // README).
-const CACHE_NAME = 'zano-shell-v48';
+
+// v49: al crear una cuenta, ahora se manda un código de 6 dígitos por
+// correo para verificarla (pantalla nueva "Verifica tu correo", igual de
+// diseño que "olvidé mi contraseña"). Mientras no se verifique, la cuenta
+// sigue funcionando casi normal (puede ver el menú, armar su semana, etc.)
+// — SOLO no puede pagar, hasta que verifique. Las cuentas que ya existían
+// antes de este cambio quedan marcadas como verificadas automáticamente,
+// nadie se queda bloqueado por algo que no le tocó hacer. No hace falta
+// configurar nada nuevo en Vercel — reutiliza el mismo EmailJS que ya
+// mandaba los demás correos a clientes.
+const CACHE_NAME = 'zano-shell-v49';
 const APP_SHELL = [
   './',
   './index.html',
