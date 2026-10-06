@@ -76,6 +76,21 @@ Con eso ya queda funcionando el cobro completo, incluyendo el aviso automático 
 
 Si en algún momento un pago no se confirma o algo se ve raro en el cobro, la app no se rompe — solo revisamos juntos con una captura de pantalla de lo que veas (y, si hace falta, el "ID del pago" que aparece en la pantalla de error).
 
+### Tarjetas guardadas (opcional)
+
+Además del botón de siempre ("Pagar con Mercado Pago"), la app ahora deja que cualquier cliente guarde una tarjeta desde Perfil → Cuenta → Métodos de pago, y la próxima vez pague con ella sin volver a escribirla completa (solo le vuelve a pedir el CVV, por seguridad — Mercado Pago nunca lo guarda). El número de la tarjeta nunca pasa por nuestro servidor: va directo del teléfono de la persona a Mercado Pago.
+
+Para que esta parte funcione hace falta UN dato más, distinto del Access Token de arriba: la **Public Key**. A diferencia del Access Token, la Public Key SÍ es segura de poner directamente en `index.html` (para eso existen las "llaves públicas") — no hace falta configurar nada en Vercel para esto.
+
+1. En el mismo panel donde copiaste el Access Token ([mercadopago.com.mx/developers/panel/app](https://www.mercadopago.com.mx/developers/panel/app) → tu aplicación → **Credenciales de producción**), busca justo arriba o al lado del Access Token un campo llamado **Public Key** (empieza con `APP_USR-` también, pero es un dato distinto al Access Token — no los confundas).
+2. Copia esa Public Key.
+3. Abre `index.html`, busca la línea `const MERCADOPAGO_PUBLIC_KEY = 'TU_PUBLIC_KEY';` (está cerca de la configuración de EmailJS) y reemplaza `'TU_PUBLIC_KEY'` por tu Public Key real, entre comillas.
+4. Sube ese cambio a GitHub como cualquier otro (ver la sección de arriba "Cómo subirlo a GitHub").
+
+Mientras no hagas esto, la app sigue funcionando exactamente igual que ahora (el botón "Pagar con Mercado Pago" de siempre cobra normal) — simplemente no aparece la opción de guardar ni de pagar con una tarjeta guardada, en ninguna pantalla, sin ningún error para nadie.
+
+Si alguien intenta guardar una tarjeta y Mercado Pago la rechaza (CVV mal escrito, fecha de vencimiento incorrecta, tarjeta deshabilitada para compras por internet, etc.), la app le muestra el motivo en español — no hace falta que tú intervengas, solo si el mensaje no es claro para esa persona.
+
 ## Activar el envío automático del correo de "Ayuda" (EmailJS)
 
 En Perfil → Ayuda, la persona puede escribir un mensaje. Ahora mismo (sin configurar nada) la app usa un respaldo manual: abre la app de correo del teléfono con el mensaje ya redactado a `zano.ayuda@gmail.com`, y además copia el mensaje al portapapeles por si esa app no abre sola. Funciona, pero le pide a la persona que confirme el envío ella misma.
@@ -184,8 +199,8 @@ Mientras no completes estos pasos, la app sigue funcionando en modo local como h
 
 ## Qué falta / qué revisar
 
-- Los 7 platillos de "Bebidas y postres" (Yogurt Griego, Bowl de Frutas, Postres y Snacks, Jugo Verde, Jugo de Naranja, Vampiro, Toronja) siguen con precio `[PRECIO]` — en cuanto me mandes su costeo los lleno.
+- Los 7 platillos de "Bebidas, Snacks y Cheat Meals" (Yogurt Griego, Bowl de Frutas, Postres y Snacks, Jugo Verde, Jugo de Naranja, Vampiro, Toronja) siguen con precio `[PRECIO]` — en cuanto me mandes su costeo los lleno.
 - **Aguacate**: quedó en $10.66 (el valor del costeo más reciente y completo del Poke, con 130g). Tu instrucción anterior había sido $12.30 — avísame si ese era un margen intencional o si nos quedamos con el $10.66 del costeo.
-- **Cobro dentro de la app (Mercado Pago)**: el código ya está listo, pero falta que agregues `MERCADOPAGO_ACCESS_TOKEN` en Vercel — ver la sección de arriba "Cobro dentro de la app (Mercado Pago)".
+- **Tarjetas guardadas (opcional)**: nuevo — para que la app deje guardar tarjetas, falta que pongas tu Public Key de Mercado Pago en `index.html` (`MERCADOPAGO_PUBLIC_KEY`) — ver la sección "Tarjetas guardadas (opcional)" más arriba. Mientras no la pongas, todo sigue funcionando normal, solo sin esa opción extra.
 
 Cualquier ajuste de precios, macros o pantallas, mándamelo y actualizo el archivo.
