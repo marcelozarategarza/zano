@@ -39,16 +39,23 @@
 <title>ZANO — App de pedidos</title>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <!--
-  Cobro real con Mercado Pago: a diferencia de antes con PayPal, aquí no
-  hace falta ningún SDK cargado en el navegador — el botón de pagar manda
-  al cliente derechito a la página segura de pago de Mercado Pago (creada
-  por el servidor, ver iniciarPagoMercadoPago() más abajo y
-  api/mercadopago.js), una navegación normal, como abrir cualquier enlace.
-  Ahí mismo, Mercado Pago ya muestra automáticamente todos los métodos de
-  pago que tengas activados en tu cuenta (tarjeta, saldo de Mercado Pago,
-  efectivo en OXXO, transferencia, y Apple Pay/Google Pay si tu cuenta los
-  tiene habilitados) — no hace falta programar cada uno por separado.
+  Cobro real con Mercado Pago: el botón "Pagar con Mercado Pago" manda al
+  cliente derechito a la página segura de pago de Mercado Pago (creada por
+  el servidor, ver iniciarPagoMercadoPago() más abajo y api/mercadopago.js),
+  una navegación normal, como abrir cualquier enlace — eso NO necesita
+  ningún SDK aquí. Ahí mismo, Mercado Pago ya muestra automáticamente todos
+  los métodos de pago que tengas activados en tu cuenta (tarjeta, saldo de
+  Mercado Pago, efectivo en OXXO, transferencia, y Apple Pay/Google Pay si
+  tu cuenta los tiene habilitados) — no hace falta programar cada uno por
+  separado.
+
+  El SDK de abajo SÍ hace falta, pero solo para "tarjetas guardadas" (ver
+  MERCADOPAGO_PUBLIC_KEY más abajo, y las funciones que usan
+  "MercadoPago(...).fields"): deja que el propio navegador de quien paga le
+  mande el número de su tarjeta directo a Mercado Pago (nunca a nuestro
+  servidor) para guardarla o para cobrar con una ya guardada.
 -->
+<script src="https://sdk.mercadopago.com/js/v2"></script>
 <!--
   Envío automático del correo de "Ayuda" (sin backend) con EmailJS: la Public Key
   es pública y es seguro exponerla — NUNCA pongas aquí una llave privada.
@@ -316,7 +323,8 @@ const OTROS = [
   { name: 'Jugo Verde', desc: 'Jugo prensado en frío', price: '[PRECIO]' },
   { name: 'Jugo de Naranja', desc: 'Naranja recién exprimida', price: '[PRECIO]' },
   { name: 'Vampiro', desc: 'Betabel, naranja y zanahoria', price: '[PRECIO]' },
-  { name: 'Toronja', desc: 'Jugo de toronja fresco', price: '[PRECIO]' }
+  { name: 'Toronja', desc: 'Jugo de toronja fresco', price: '[PRECIO]' },
+  { name: 'Waffles Especiales', desc: 'Con tocino, salchicha de res, proteína y plátano', price: '$100.00' }
 ];
 
 // Precios y macros por porción del Poke, tomados directo del costeo (gramos usados × precio/gramo).
@@ -408,6 +416,20 @@ let state = {
   verifyCode: '',
   verifyError: '',
   verifyLoading: false,
+
+  // Tarjetas guardadas de Mercado Pago (ver api/mercadopago.js,
+  // action=getCards/saveCard/deleteCard/payWithCard) — para pagar sin
+  // volver a escribir el número completo cada semana.
+  savedCards: [],
+  savedCardsLoaded: false,
+  savedCardsLoading: false,
+  savedCardsError: '',
+  nuevaTarjetaOpen: false,
+  nuevaTarjetaGuardando: false,
+  nuevaTarjetaError: '',
+  tarjetaBorrandoId: null,
+  pagoConTarjetaId: '',
+  pagoConTarjetaCargando: false,
 
   // Panel de administración (solo para ti — ver /#admin). Independiente de
   // la sesión de un cliente: usa su propia contraseña y su propio token.
@@ -1071,6 +1093,128 @@ async function reenviarCodigoVerificacion() {
 }
 
 // ---------------------------------------------------------------------
+// Tarjetas guardadas de Mercado Pago (ver api/mercadopago.js,
+// action=getCards/saveCard/deleteCard/payWithCard, y MERCADOPAGO_PUBLIC_KEY
+// más arriba). El número completo de la tarjeta nunca llega a nuestro
+// servidor: estos "campos" (mp.fields.create(...).mount(...)) son casillas
+// seguras de Mercado Pago que viven encima de nuestra app, y solo nos
+// regresan un token de un solo uso.
+// ---------------------------------------------------------------------
+async function cargarTarjetas() {
+  if (!state.authToken || state.savedCardsLoading) return;
+  setState({ savedCardsLoading: true, savedCardsError: '' });
+  try {
+    const r = await apiFetch('/api/mercadopago', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + state.authToken },
+      body: { action: 'getCards' }
+    });
+    if (r.ok && r.data) {
+      setState({ savedCards: r.data.cards || [], savedCardsLoaded: true, savedCardsLoading: false });
+    } else {
+      setState({ savedCardsLoading: false, savedCardsLoaded: true, savedCardsError: (r.data && r.data.error) || 'No se pudieron cargar tus tarjetas guardadas.' });
+    }
+  } catch (e) {
+    setState({ savedCardsLoading: false, savedCardsLoaded: true, savedCardsError: 'No hay conexión con el servidor.' });
+  }
+}
+
+// Monta las casillas seguras del formulario "Agregar tarjeta" (en Perfil) —
+// se vuelve a llamar cada vez que ese formulario se vuelve a dibujar en
+// pantalla, porque cada vez son casillas nuevas.
+function montarFormularioTarjeta() {
+  const mp = getMp();
+  if (!mp) return;
+  try {
+    mp.fields.create('cardNumber', { placeholder: '•••• •••• •••• ••••' }).mount('zano-tarjeta-numero');
+    mp.fields.create('expirationDate', { placeholder: 'MM/AA' }).mount('zano-tarjeta-vencimiento');
+    mp.fields.create('securityCode', { placeholder: 'CVV' }).mount('zano-tarjeta-cvv');
+  } catch (e) { /* ya montadas en este mismo dibujo, no pasa nada */ }
+}
+
+async function guardarTarjetaNueva() {
+  const mp = getMp();
+  if (!mp) {
+    setState({ nuevaTarjetaError: 'Falta configurar Mercado Pago en esta app (MERCADOPAGO_PUBLIC_KEY) — avísale a quien administra ZANO.' });
+    return;
+  }
+  const nombreInput = document.getElementById('zano-tarjeta-nombre');
+  const cardholderName = nombreInput ? nombreInput.value.trim() : '';
+  if (!cardholderName) {
+    setState({ nuevaTarjetaError: 'Escribe el nombre como aparece en la tarjeta.' });
+    return;
+  }
+  setState({ nuevaTarjetaGuardando: true, nuevaTarjetaError: '' });
+  try {
+    const tokenData = await mp.fields.createCardToken({ cardholderName });
+    const r = await apiFetch('/api/mercadopago', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + state.authToken },
+      body: { action: 'saveCard', token: tokenData.id }
+    });
+    if (r.ok && r.data) {
+      setState({ savedCards: r.data.cards || [], savedCardsLoaded: true, nuevaTarjetaGuardando: false, nuevaTarjetaOpen: false, nuevaTarjetaError: '' });
+    } else {
+      setState({ nuevaTarjetaGuardando: false, nuevaTarjetaError: (r.data && r.data.error) || 'No se pudo guardar la tarjeta. Revisa los datos e intenta de nuevo.' });
+    }
+  } catch (e) {
+    setState({ nuevaTarjetaGuardando: false, nuevaTarjetaError: 'No se pudo leer la tarjeta. Revisa los datos e intenta de nuevo.' });
+  }
+}
+
+async function borrarTarjetaGuardada(cardId) {
+  setState({ tarjetaBorrandoId: cardId, savedCardsError: '' });
+  try {
+    const r = await apiFetch('/api/mercadopago', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + state.authToken },
+      body: { action: 'deleteCard', cardId }
+    });
+    if (r.ok && r.data) {
+      setState({ savedCards: r.data.cards || [], tarjetaBorrandoId: null, pagoConTarjetaId: state.pagoConTarjetaId === cardId ? '' : state.pagoConTarjetaId });
+    } else {
+      setState({ tarjetaBorrandoId: null, savedCardsError: (r.data && r.data.error) || 'No se pudo borrar la tarjeta.' });
+    }
+  } catch (e) {
+    setState({ tarjetaBorrandoId: null, savedCardsError: 'No hay conexión con el servidor.' });
+  }
+}
+
+// Monta la casilla de CVV en la pantalla de Pago, cuando alguien elige una
+// de sus tarjetas guardadas para pagar con ella.
+function montarCvvPago() {
+  const mp = getMp();
+  if (!mp || !state.pagoConTarjetaId) return;
+  try {
+    mp.fields.create('securityCode', { placeholder: 'CVV' }).mount('zano-pago-cvv');
+  } catch (e) { /* ya montada en este mismo dibujo, no pasa nada */ }
+}
+
+async function pagarConTarjetaGuardada(weekStart, totalCents) {
+  const mp = getMp();
+  if (!mp || !state.pagoConTarjetaId) return;
+  setState({ pagoConTarjetaCargando: true, paymentError: '' });
+  try {
+    const tokenData = await mp.fields.createCardToken({ cardId: state.pagoConTarjetaId });
+    const r = await apiFetch('/api/mercadopago', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + state.authToken },
+      body: { action: 'payWithCard', token: tokenData.id, weekStart, totalCents }
+    });
+    if (r.ok && r.data && r.data.ok) {
+      setState({ pagoConTarjetaCargando: false, screen: 'pagoOk', lastPaymentId: r.data.paymentId, paymentError: '', pagoConTarjetaId: '' });
+      loadOrderHistory();
+    } else if (r.data && r.data.pendiente) {
+      setState({ pagoConTarjetaCargando: false, paymentError: r.data.error });
+    } else {
+      setState({ pagoConTarjetaCargando: false, paymentError: (r.data && r.data.error) || 'No se pudo cobrar con esa tarjeta. Revisa el CVV o intenta con otra.' });
+    }
+  } catch (e) {
+    setState({ pagoConTarjetaCargando: false, paymentError: 'No se pudo leer el CVV. Intenta de nuevo.' });
+  }
+}
+
+// ---------------------------------------------------------------------
 // Panel de administración (solo para ti — entras por tudominio.com/#admin)
 // ---------------------------------------------------------------------
 async function submitAdminLogin() {
@@ -1492,7 +1636,17 @@ function logout() {
     verifyEmail: '',
     verifyCode: '',
     verifyError: '',
-    verifyLoading: false
+    verifyLoading: false,
+    savedCards: [],
+    savedCardsLoaded: false,
+    savedCardsLoading: false,
+    savedCardsError: '',
+    nuevaTarjetaOpen: false,
+    nuevaTarjetaGuardando: false,
+    nuevaTarjetaError: '',
+    tarjetaBorrandoId: null,
+    pagoConTarjetaId: '',
+    pagoConTarjetaCargando: false
   });
 }
 
@@ -1515,6 +1669,25 @@ function emailjsListo() {
 
 if (typeof emailjs !== 'undefined' && EMAILJS_PUBLIC_KEY !== 'TU_PUBLIC_KEY') {
   emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
+}
+
+// Llave PÚBLICA de Mercado Pago (distinta del Access Token secreto que vive
+// solo en Vercel, ver api/_mercadopago.js) — esta sí es segura de exponer
+// aquí, en el navegador: es justo para lo que existen las Public Key. Solo
+// hace falta para "tarjetas guardadas" (ver sección "Métodos de pago" en
+// Perfil, y el botón "Pagar con tarjeta guardada" en la pantalla de Pago);
+// el botón normal "Pagar con Mercado Pago" funciona siempre, sin esto.
+// Mientras siga con su valor de ejemplo, esa parte de la app simplemente no
+// se muestra, sin ningún error. Ver README para dónde conseguir tu Public
+// Key real.
+const MERCADOPAGO_PUBLIC_KEY = 'TU_PUBLIC_KEY';
+
+let mpClienteInstancia = null;
+function getMp() {
+  if (mpClienteInstancia) return mpClienteInstancia;
+  if (typeof MercadoPago === 'undefined' || MERCADOPAGO_PUBLIC_KEY === 'TU_PUBLIC_KEY') return null;
+  mpClienteInstancia = new MercadoPago(MERCADOPAGO_PUBLIC_KEY, { locale: 'es-MX' });
+  return mpClienteInstancia;
 }
 
 function copiarTexto(texto) {
@@ -2551,7 +2724,7 @@ function renderMenuList() {
       </div>
       <div style="display:flex;background:#F0ECE0;border-radius:999px;padding:4px;gap:4px;">
         <button onclick="setState({tab:'platos'})" style="flex:1;padding:10px;border-radius:999px;font-size:13px;font-weight:700;background:${isPlatos ? '#FFFFFF' : 'transparent'};color:${isPlatos ? '#1F2420' : '#6B7268'};">Platos</button>
-        <button onclick="setState({tab:'otros'})" style="flex:1;padding:10px;border-radius:999px;font-size:13px;font-weight:700;background:${!isPlatos ? '#FFFFFF' : 'transparent'};color:${!isPlatos ? '#1F2420' : '#6B7268'};">Bebidas y postres</button>
+        <button onclick="setState({tab:'otros'})" style="flex:1;padding:10px;border-radius:999px;font-size:13px;font-weight:700;background:${!isPlatos ? '#FFFFFF' : 'transparent'};color:${!isPlatos ? '#1F2420' : '#6B7268'};">Bebidas, Snacks y Cheat Meals</button>
       </div>
       <div style="display:flex;flex-direction:column;gap:10px;">
         ${list.map((item, i) => `
@@ -2822,6 +2995,24 @@ function renderPago() {
           <span style="font-size:12.5px;line-height:1.4;color:#B4472A;">Todavía no verificas tu correo — hace falta antes de poder pagar.</span>
         </div>
         <button onclick="setState({screen:'verificar', verifyEmail: state.user.email, verifyError:''})" class="pill-btn" style="width:100%;text-align:center;">Verificar mi correo</button>` : `
+        ${state.savedCards && state.savedCards.length > 0 ? `
+        <div style="width:100%;display:flex;flex-direction:column;gap:8px;">
+          <span style="font-size:11px;font-weight:700;color:#6B7268;text-transform:uppercase;letter-spacing:0.4px;">Tus tarjetas guardadas</span>
+          ${state.savedCards.map((c) => `
+            <div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:10px;">
+              <button onclick="setState({pagoConTarjetaId: state.pagoConTarjetaId === ${JSON.stringify(c.id)} ? '' : ${JSON.stringify(c.id)}, paymentError:''})" style="width:100%;display:flex;align-items:center;justify-content:space-between;text-align:left;">
+                <span style="font-size:13.5px;font-weight:600;color:#1F2420;">${esc(c.brand)} terminada en ${esc(c.lastFour)}</span>
+                ${icon(state.pagoConTarjetaId === c.id ? 'chevronDown' : 'chevronRight', { w: 16, h: 16 })}
+              </button>
+              ${state.pagoConTarjetaId === c.id ? `
+              <div style="display:flex;flex-direction:column;gap:8px;">
+                <div id="zano-pago-cvv" style="height:40px;border:1px solid #D8D3C4;border-radius:8px;padding:0 10px;display:flex;align-items:center;"></div>
+                <button onclick="pagarConTarjetaGuardada(${JSON.stringify(computeWeekStartISO())}, ${Math.round(weekTotalNum * 100)})" ${state.pagoConTarjetaCargando ? 'disabled' : ''} class="pill-btn" style="width:100%;text-align:center;opacity:${state.pagoConTarjetaCargando ? '0.6' : '1'};">${state.pagoConTarjetaCargando ? 'Cobrando…' : 'Pagar con esta tarjeta'}</button>
+              </div>` : ''}
+            </div>
+          `).join('')}
+          <span style="font-size:11px;color:#9AA096;text-align:center;">o paga con otro método:</span>
+        </div>` : ''}
         <button onclick="iniciarPagoMercadoPago()" ${state.payLoading ? 'disabled' : ''} class="pill-btn" style="width:100%;text-align:center;opacity:${state.payLoading ? '0.6' : '1'};">${state.payLoading ? 'Conectando con Mercado Pago…' : 'Pagar con Mercado Pago'}</button>
         <p style="margin:0;font-size:11px;line-height:1.4;color:#9AA096;text-align:center;">Te lleva a la página segura de Mercado Pago para terminar tu pago (tarjeta de crédito/débito, saldo de Mercado Pago, efectivo en OXXO o transferencia, sin necesitar cuenta) — se te cobrará de verdad al confirmar, y en cuanto termines regresas aquí mismo solo.</p>`}
       </div>
@@ -2878,8 +3069,7 @@ function renderPerfil() {
     });
   const isProximos = state.historialTab === 'proximos';
 
-  const metodosPago = [
-    { label: 'Tarjeta de crédito o débito', detalle: 'Vía Mercado Pago, al momento de pagar' },
+  const otrosMetodosPago = [
     { label: 'Mercado Pago', detalle: 'Con tu cuenta o saldo de Mercado Pago' },
     { label: 'Efectivo en OXXO o transferencia', detalle: 'Cuando esté disponible, según lo que ZANO tenga activado' }
   ];
@@ -2969,8 +3159,44 @@ function renderPerfil() {
           </button>
           ${state.perfilMetodosOpen ? `
           <div style="display:flex;flex-direction:column;">
-            ${metodosPago.map((m) => `
-              <div style="padding:12px 16px 12px 28px;border-bottom:1px solid #F0ECE0;display:flex;flex-direction:column;gap:1px;">
+            <div style="padding:10px 16px 2px 28px;">
+              <span style="font-size:11px;line-height:1.4;color:#6B7268;">Guarda una tarjeta para pagar más rápido la próxima vez, sin volver a escribir el número ni la fecha — el CVV se vuelve a pedir cada vez, por seguridad (Mercado Pago nunca lo guarda).</span>
+            </div>
+            ${state.savedCardsLoading ? `
+            <div style="padding:10px 16px 12px 28px;"><span style="font-size:12px;color:#6B7268;">Cargando tus tarjetas…</span></div>` : ''}
+            ${state.savedCardsError ? `
+            <div style="padding:6px 16px 12px 28px;"><span style="font-size:11.5px;color:#B4472A;">${esc(state.savedCardsError)}</span></div>` : ''}
+            ${(state.savedCards || []).map((c) => `
+              <div style="padding:10px 16px 10px 28px;border-bottom:1px solid #F0ECE0;display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                <div style="display:flex;flex-direction:column;gap:1px;">
+                  <span style="font-size:13px;font-weight:600;color:#1F2420;">${esc(c.brand)} terminada en ${esc(c.lastFour)}</span>
+                  ${c.expMonth ? `<span style="font-size:11px;color:#6B7268;">Vence ${String(c.expMonth).padStart(2, '0')}/${String(c.expYear).slice(-2)}</span>` : ''}
+                </div>
+                <button onclick="borrarTarjetaGuardada(${JSON.stringify(c.id)})" ${state.tarjetaBorrandoId === c.id ? 'disabled' : ''} style="font-size:12px;font-weight:700;color:#B4472A;white-space:nowrap;">${state.tarjetaBorrandoId === c.id ? 'Borrando…' : 'Eliminar'}</button>
+              </div>
+            `).join('')}
+
+            ${state.nuevaTarjetaOpen ? `
+            <div style="padding:12px 16px 16px 28px;display:flex;flex-direction:column;gap:8px;">
+              <input id="zano-tarjeta-nombre" type="text" placeholder="Nombre como aparece en la tarjeta" ${state.nuevaTarjetaGuardando ? 'disabled' : ''}>
+              <div id="zano-tarjeta-numero" style="height:40px;border:1px solid #D8D3C4;border-radius:8px;padding:0 10px;display:flex;align-items:center;"></div>
+              <div style="display:flex;gap:8px;">
+                <div id="zano-tarjeta-vencimiento" style="flex:1;height:40px;border:1px solid #D8D3C4;border-radius:8px;padding:0 10px;display:flex;align-items:center;"></div>
+                <div id="zano-tarjeta-cvv" style="flex:1;height:40px;border:1px solid #D8D3C4;border-radius:8px;padding:0 10px;display:flex;align-items:center;"></div>
+              </div>
+              ${state.nuevaTarjetaError ? `<span style="font-size:11.5px;color:#B4472A;">${esc(state.nuevaTarjetaError)}</span>` : ''}
+              <button onclick="guardarTarjetaNueva()" ${state.nuevaTarjetaGuardando ? 'disabled' : ''} style="width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:${ACCENT};color:#FFFFFF;border-radius:12px;padding:13px;font-size:13.5px;font-weight:700;opacity:${state.nuevaTarjetaGuardando ? '0.6' : '1'};">${state.nuevaTarjetaGuardando ? 'Guardando…' : 'Guardar tarjeta'}</button>
+              <button onclick="setState({nuevaTarjetaOpen:false, nuevaTarjetaError:''})" style="width:100%;text-align:center;padding:6px;font-size:12.5px;font-weight:600;color:#6B7268;">Cancelar</button>
+            </div>` : `
+            <div style="padding:10px 16px 16px 28px;">
+              <button onclick="setState({nuevaTarjetaOpen:true, nuevaTarjetaError:''})" style="font-size:13px;font-weight:700;color:#2B5D3F;">+ Agregar tarjeta</button>
+            </div>`}
+
+            <div style="padding:10px 16px 2px 28px;">
+              <span style="font-size:11px;font-weight:700;color:#6B7268;text-transform:uppercase;letter-spacing:0.4px;">También puedes pagar sin guardar nada con</span>
+            </div>
+            ${otrosMetodosPago.map((m) => `
+              <div style="padding:8px 16px 12px 28px;display:flex;flex-direction:column;gap:1px;">
                 <span style="font-size:13px;font-weight:600;color:#1F2420;">${esc(m.label)}</span>
                 <span style="font-size:11px;color:#6B7268;">${esc(m.detalle)}</span>
               </div>
@@ -3151,13 +3377,27 @@ function render() {
     // no hay nada más que "montar" aquí (a diferencia de antes con PayPal,
     // ya no hace falta un SDK aparte para el botón de Apple Pay: Mercado
     // Pago lo muestra solo, dentro de su propia página de pago, si la
-    // cuenta lo tiene habilitado).
+    // cuenta lo tiene habilitado). Lo que sí hay que montar es la casilla
+    // de CVV si elegiste pagar con una tarjeta guardada (ver abajo).
+    if (state.pagoConTarjetaId) montarCvvPago();
   }
 
   // Si entras a Perfil (o a Inicio, donde vive "Pedir lo mismo") y todavía
   // no hemos traído tu historial en esta sesión, lo pedimos una vez.
   if ((state.screen === 'perfil' || state.screen === 'inicio') && state.authToken && !state.orderHistoryLoading && !state.orderHistoryLoaded) {
     loadOrderHistory();
+  }
+
+  // Tarjetas guardadas: las necesitamos tanto en Perfil (para administrarlas)
+  // como en Pago (para poder ofrecer pagar con una de ellas) — se piden una
+  // sola vez por sesión (ver savedCardsLoaded). Si el formulario de
+  // "Agregar tarjeta" está abierto, hay que volver a montar sus casillas
+  // cada vez que esta pantalla se vuelve a dibujar (son casillas nuevas).
+  if ((state.screen === 'perfil' || state.screen === 'pago') && state.authToken && !state.savedCardsLoaded && !state.savedCardsLoading) {
+    cargarTarjetas();
+  }
+  if (state.screen === 'perfil' && state.nuevaTarjetaOpen) {
+    montarFormularioTarjeta();
   }
 
   if (showNav) {
