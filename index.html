@@ -2282,11 +2282,13 @@ function renderStaff() {
             <span style="font-family:'Fraunces',serif;font-size:16px;font-weight:600;color:#1F2420;">Croissant</span>
             <span style="font-size:20px;color:#8A6A1E;">›</span>
           </button>
+          <span style="font-size:11.5px;color:#8A6A1E;">Vendidos hoy — Efectivo: ${data && data.croissantHoy ? data.croissantHoy.efectivo : 0} · Tarjeta: ${data && data.croissantHoy ? data.croissantHoy.tarjeta : 0}</span>
         ` : `
           <div style="display:flex;align-items:center;justify-content:space-between;">
             <span style="font-family:'Fraunces',serif;font-size:16px;font-weight:600;color:#1F2420;">Croissant</span>
             <button onclick="toggleBloqueCroissant()" aria-label="Cerrar" style="background:none;border:none;font-size:13px;font-weight:700;color:#8A6A1E;">Cerrar</button>
           </div>
+          <span style="font-size:11.5px;color:#8A6A1E;">Vendidos hoy — Efectivo: ${data && data.croissantHoy ? data.croissantHoy.efectivo : 0} · Tarjeta: ${data && data.croissantHoy ? data.croissantHoy.tarjeta : 0}</span>
 
           ${!state.staffCroissantMetodo ? `
             <span style="font-size:11.5px;color:#8A6A1E;">¿Cómo se cobró?</span>
