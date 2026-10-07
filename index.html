@@ -431,6 +431,12 @@ let state = {
   pagoConTarjetaId: '',
   pagoConTarjetaCargando: false,
 
+  // "Editar entrega" de un pedido ya pagado (ver Perfil > Pedidos próximos,
+  // y cambiarHorarioEntrega()/cambiarDiaEntrega() más abajo).
+  editEntregaDia: null,
+  editEntregaLoading: false,
+  editEntregaError: '',
+
   // Panel de administración (solo para ti — ver /#admin). Independiente de
   // la sesión de un cliente: usa su propia contraseña y su propio token.
   adminToken: '',
@@ -604,10 +610,26 @@ function computeWeekTotalNumber(diasConPedido) {
 
 // Próxima recolección: si hoy (Lunes-Viernes) ya tiene pedido, es esa.
 // Si no, busca el siguiente día de la semana que sí tenga pedido.
+// Tu pedido YA PAGADO de la semana que viene (computeWeekStartISO()), si lo
+// hay, buscado en tu historial (state.orderHistory, el mismo que llena
+// "Pedidos pasados" — ver loadOrderHistory()). Hace falta aparte de
+// state.weekOrder porque ese se vacía en cuanto confirmas el pago (ver
+// renderPagoOk()) — sin esto, en cuanto cierras y vuelves a abrir la app
+// después de pagar, tu pedido "desaparecería" de Perfil hasta que empezara
+// la semana. Se usa solo para MOSTRAR y para "Editar entrega" — nunca para
+// armar un pedido nuevo (eso siempre usa state.weekOrder tal cual).
+function pedidoProximoPagado() {
+  const weekStart = computeWeekStartISO();
+  return (state.orderHistory || []).find((h) => h.weekStart === weekStart) || null;
+}
+
 function computeProximaRecoleccion() {
   const jsDay = new Date().getDay(); // 0=Dom,1=Lun,...,6=Sáb
   const todayIndex = (jsDay >= 1 && jsDay <= 5) ? jsDay - 1 : null;
-  const itemFor = (idx) => state.weekOrder[DIAS[idx]] || null;
+  const hayLocal = DIAS.some((d) => state.weekOrder[d]);
+  const pagado = hayLocal ? null : pedidoProximoPagado();
+  const fuente = hayLocal ? state.weekOrder : (pagado ? pagado.items : state.weekOrder);
+  const itemFor = (idx) => fuente[DIAS[idx]] || null;
 
   if (todayIndex !== null) {
     const hoy = itemFor(todayIndex);
@@ -798,6 +820,50 @@ async function loadOrderHistory() {
     // regrese la señal (en vez de quedarse vacío para siempre).
     setState({ orderHistoryLoading: false });
   }
+}
+
+// ---------------------------------------------------------------------
+// "Editar entrega" de un pedido YA PAGADO (ver Perfil > Pedidos próximos):
+// cambiar el horario de recogida de un día, o mover el platillo de ese día
+// a otro día libre de la misma semana — sin tener que cancelar y volver a
+// pagar. Ver api/order-save.js, action=editEntrega.
+// ---------------------------------------------------------------------
+function toggleEditEntrega(dia) {
+  setState({ editEntregaDia: state.editEntregaDia === dia ? null : dia, editEntregaError: '' });
+}
+
+// Aplica el cambio en el servidor y, si sale bien, actualiza el pedido
+// pagado guardado en state.orderHistory (de ahí lee pedidoProximoPagado()),
+// para que se vea el cambio al instante sin tener que recargar nada.
+async function guardarEditEntrega(dia, cambios) {
+  const pedido = pedidoProximoPagado();
+  if (!pedido || state.editEntregaLoading) return;
+  setState({ editEntregaLoading: true, editEntregaError: '' });
+  try {
+    const r = await apiFetch('/api/order-save', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + state.authToken },
+      body: Object.assign({ action: 'editEntrega', weekStart: pedido.weekStart, dia }, cambios)
+    });
+    if (r.ok && r.data && r.data.ok) {
+      const orderHistory = state.orderHistory.map((h) =>
+        h.weekStart === pedido.weekStart ? { ...h, items: r.data.items, horarios: r.data.horarios } : h
+      );
+      setState({ orderHistory, editEntregaLoading: false, editEntregaDia: null, editEntregaError: '' });
+    } else {
+      setState({ editEntregaLoading: false, editEntregaError: (r.data && r.data.error) || 'No se pudo guardar el cambio. Intenta de nuevo.' });
+    }
+  } catch (e) {
+    setState({ editEntregaLoading: false, editEntregaError: 'No hay conexión con el servidor.' });
+  }
+}
+
+function cambiarHorarioEntrega(dia, horario) {
+  guardarEditEntrega(dia, { horario });
+}
+
+function cambiarDiaEntrega(dia, moveTo) {
+  guardarEditEntrega(dia, { moveTo });
 }
 
 // Recalcula el precio de un platillo guardado usando el menú de HOY (en vez
@@ -1646,7 +1712,10 @@ function logout() {
     nuevaTarjetaError: '',
     tarjetaBorrandoId: null,
     pagoConTarjetaId: '',
-    pagoConTarjetaCargando: false
+    pagoConTarjetaCargando: false,
+    editEntregaDia: null,
+    editEntregaLoading: false,
+    editEntregaError: ''
   });
 }
 
@@ -3045,14 +3114,74 @@ function renderPagoOk() {
   `;
 }
 
+// Panel "Editar entrega" de un día ya pagado (ver toggleEditEntrega() /
+// cambiarHorarioEntrega() / cambiarDiaEntrega()) — elegir otro horario de
+// recogida, o mover el platillo de ese día a otro día de la misma semana
+// que todavía esté libre.
+function renderEditEntregaPanel(dia, horarioActual, items) {
+  const diasLibres = DIAS.filter((d) => d !== dia && !items[d]);
+  return `
+    <div style="display:flex;flex-direction:column;gap:12px;padding-top:10px;margin-top:2px;border-top:1px solid #F0ECE0;">
+      ${state.editEntregaError ? `
+      <div style="display:flex;gap:8px;align-items:flex-start;background:#FBEAE5;border-radius:12px;padding:10px 12px;">
+        ${icon('info', { w: 14, h: 14, stroke: '#B4472A', sw: 1.8 })}
+        <span style="font-size:11.5px;line-height:1.4;color:#B4472A;">${esc(state.editEntregaError)}</span>
+      </div>` : ''}
+
+      <div>
+        <span style="font-size:11px;font-weight:700;color:#6B7268;text-transform:uppercase;letter-spacing:0.4px;">Horario de recogida</span>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
+          ${HORARIOS.map((h) => `
+            <button onclick='cambiarHorarioEntrega(${JSON.stringify(dia)}, ${JSON.stringify(h)})' ${state.editEntregaLoading ? 'disabled' : ''} class="chip-btn ${horarioActual === h ? 'selected' : ''}">
+              ${horarioActual === h ? icon('check', { w: 13, h: 13, stroke: '#2B5D3F', sw: 2.4 }) : ''}
+              <span>${h}</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+
+      <div>
+        <span style="font-size:11px;font-weight:700;color:#6B7268;text-transform:uppercase;letter-spacing:0.4px;">Cambiar el día de este platillo</span>
+        ${diasLibres.length > 0 ? `
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
+          ${diasLibres.map((d) => `
+            <button onclick='cambiarDiaEntrega(${JSON.stringify(dia)}, ${JSON.stringify(d)})' ${state.editEntregaLoading ? 'disabled' : ''} class="chip-btn">
+              <span>Mover a ${d}</span>
+            </button>
+          `).join('')}
+        </div>` : `
+        <p style="margin:8px 0 0 0;font-size:11.5px;line-height:1.4;color:#9AA096;">Los demás días de tu semana ya tienen un platillo pedido — para moverlo a alguno, antes tendríamos que quitar ese otro pedido. Escríbenos si necesitas ese cambio.</p>`}
+      </div>
+
+      ${state.editEntregaLoading ? `<span style="font-size:11.5px;color:#6B7268;">Guardando…</span>` : ''}
+    </div>
+  `;
+}
+
 // ---------------------------------------------------------------------
 // Render: Perfil
 // ---------------------------------------------------------------------
 function renderPerfil() {
-  // "Pedidos próximos" viene de tu semana armada de verdad; "pedidos pasados"
-  // viene de tu historial real guardado en el servidor (ver loadOrderHistory()),
-  // sin contar la semana en curso (esa ya se ve en "Pedidos próximos").
-  const proximos = computeDiasConPedido().filter((d) => d.hasItem);
+  // "Pedidos próximos": si ya pagaste la semana que viene, lo traemos de tu
+  // historial (pedidoProximoPagado() — sigue ahí aunque hayas cerrado y
+  // vuelto a abrir la app, a diferencia de state.weekOrder, que se vacía en
+  // cuanto confirmas el pago); si todavía no has pagado, mostramos tu
+  // borrador en curso tal cual. "Pedidos pasados" viene de tu historial real
+  // guardado en el servidor (ver loadOrderHistory()), sin contar la semana
+  // en curso (esa ya se ve arriba, en "Pedidos próximos").
+  const pedidoPagado = pedidoProximoPagado();
+  const proximosFuente = pedidoPagado ? pedidoPagado.items : state.weekOrder;
+  const proximosHorarios = pedidoPagado ? pedidoPagado.horarios : state.horarios;
+  const proximos = DIAS.map((dia) => {
+    const item = proximosFuente[dia] || null;
+    return {
+      dia,
+      label: item ? item.name : 'Elegir platillo',
+      price: item ? item.price : '',
+      horario: proximosHorarios[dia] || null,
+      hasItem: !!item
+    };
+  }).filter((d) => d.hasItem);
   const semanaActual = computeWeekStartISO();
   const pasados = (state.orderHistory || [])
     .filter((h) => h.weekStart !== semanaActual)
@@ -3112,12 +3241,18 @@ function renderPerfil() {
         <div style="display:flex;flex-direction:column;gap:8px;">
           ${isProximos ? (
             proximos.length > 0 ? proximos.map((d) => `
-              <div class="card row" style="padding:14px;">
-                <div style="display:flex;flex-direction:column;gap:2px;">
-                  <span style="font-size:13.5px;font-weight:600;color:#1F2420;">${d.dia}</span>
-                  <span style="font-size:11.5px;color:#6B7268;">${esc(d.label)}</span>
+              <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px;">
+                <div class="row">
+                  <div style="display:flex;flex-direction:column;gap:2px;">
+                    <span style="font-size:13.5px;font-weight:600;color:#1F2420;">${d.dia}</span>
+                    <span style="font-size:11.5px;color:#6B7268;">${esc(d.label)}${d.horario ? ' · ' + esc(d.horario) : ''}</span>
+                  </div>
+                  <span style="font-size:11px;font-weight:700;color:#2B5D3F;background:#E4ECE1;border-radius:999px;padding:5px 10px;">${esc(d.price)}</span>
                 </div>
-                <span style="font-size:11px;font-weight:700;color:#2B5D3F;background:#E4ECE1;border-radius:999px;padding:5px 10px;">${esc(d.price)}</span>
+                ${pedidoPagado ? `
+                <button onclick="toggleEditEntrega(${JSON.stringify(d.dia)})" style="align-self:flex-start;font-size:12px;font-weight:700;color:#2B5D3F;">${state.editEntregaDia === d.dia ? 'Cerrar' : 'Editar entrega'}</button>
+                ${state.editEntregaDia === d.dia ? renderEditEntregaPanel(d.dia, d.horario, proximosFuente) : ''}
+                ` : ''}
               </div>
             `).join('') : `<p style="margin:0;font-size:12.5px;color:#6B7268;">No tienes pedidos próximos todavía.</p>`
           ) : (
