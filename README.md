@@ -197,6 +197,15 @@ Para confirmar que el recordatorio automático quedó bien configurado, en tu pr
 
 Mientras no completes estos pasos, la app sigue funcionando en modo local como hasta ahora (cuentas solo en el navegador, sin correos automáticos de cuentas/pedidos) — no se rompe nada. Y aunque ya tengas todo conectado, si algún correo puntual falla (por ejemplo, se te acabaron los 200 correos gratis de EmailJS ese mes), la cuenta o el pedido se guardan igual en la base de datos — solo ese correo en particular no sale.
 
+## Editar entrega de un pedido ya pagado
+
+En Perfil → Pedidos próximos, cada día con un pedido ya pagado trae un botón **"Editar entrega"** que deja, sin cancelar ni volver a pagar:
+
+- Cambiar el horario de recogida de ese día.
+- Mover el platillo de ese día a otro día de la misma semana que todavía esté libre (si el día destino ya tiene otro platillo pedido, primero hay que quitarlo — por ahora eso se hace contactándote a ti directamente, la app no deja "intercambiar" dos días automáticamente).
+
+Se bloquea solo (con un mensaje explicándolo) si cocina ya marcó ese día como "Empezar a preparar" o más adelante en el panel de cocina — así nadie mueve un pedido que ya se está cocinando sin que se enteren a tiempo. No necesita ninguna configuración nueva, ni en Vercel ni en `index.html`.
+
 ## Qué falta / qué revisar
 
 - Los 7 platillos de "Bebidas, Snacks y Cheat Meals" (Yogurt Griego, Bowl de Frutas, Postres y Snacks, Jugo Verde, Jugo de Naranja, Vampiro, Toronja) siguen con precio `[PRECIO]` — en cuanto me mandes su costeo los lleno.
