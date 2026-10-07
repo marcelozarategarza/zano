@@ -206,7 +206,14 @@
 // próximos" (y la tarjeta "Tu próxima recolección") se veían vacíos si
 // cerrabas y volvías a abrir la app después de pagar — ahora, si ya no
 // queda el borrador local, se recupera el pedido pagado desde tu historial.
-const CACHE_NAME = 'zano-shell-v51';
+
+// v52: en el panel de Cocina, el bloque de croissants ya no muestra
+// contadores con "+"/"−": ahora es un bloque que dice "Croissant" — se toca,
+// se elige cómo se cobró (Efectivo o Tarjeta) y aparece el total con un
+// botón "Confirmar" (si es Tarjeta, recuerda cobrarlo en la terminal de
+// Mercado Pago antes de confirmar). Al confirmar se registra la venta igual
+// que antes — nada cambió del lado del servidor ni de Administración.
+const CACHE_NAME = 'zano-shell-v52';
 const APP_SHELL = [
   './',
   './index.html',
