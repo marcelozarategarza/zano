@@ -185,7 +185,28 @@
 // nadie se queda bloqueado por algo que no le tocó hacer. No hace falta
 // configurar nada nuevo en Vercel — reutiliza el mismo EmailJS que ya
 // mandaba los demás correos a clientes.
-const CACHE_NAME = 'zano-shell-v49';
+
+// v50: nuevo — "tarjetas guardadas". En Perfil > Cuenta > Métodos de pago,
+// cualquier cliente puede guardar una tarjeta (no un número completo:
+// Mercado Pago la guarda, nosotros solo nos quedamos con un identificador)
+// y, desde ese momento, en la pantalla de Pago le aparece la opción de
+// pagar con esa tarjeta sin volver a escribirla entera — solo le vuelve a
+// pedir el CVV, por seguridad. El botón de siempre, "Pagar con Mercado
+// Pago" (tarjeta nueva, OXXO, transferencia, saldo), sigue funcionando
+// igual. Para que esta parte funcione hace falta que el dueño ponga su
+// Public Key de Mercado Pago en index.html (MERCADOPAGO_PUBLIC_KEY, ver
+// README) — mientras no se configure, la app sigue funcionando normal,
+// solo sin la opción de guardar tarjetas.
+
+// v51: nuevo — "Editar entrega" en Perfil > Pedidos próximos, para un
+// pedido YA PAGADO: cambiar el horario de recogida de un día, o mover el
+// platillo de ese día a otro día libre de la misma semana, sin tener que
+// cancelar ni volver a pagar (el total no cambia). Se bloquea solo si
+// cocina ya empezó a preparar ese día. También se corrigió que "Pedidos
+// próximos" (y la tarjeta "Tu próxima recolección") se veían vacíos si
+// cerrabas y volvías a abrir la app después de pagar — ahora, si ya no
+// queda el borrador local, se recupera el pedido pagado desde tu historial.
+const CACHE_NAME = 'zano-shell-v51';
 const APP_SHELL = [
   './',
   './index.html',
