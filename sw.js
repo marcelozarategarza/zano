@@ -213,7 +213,11 @@
 // botón "Confirmar" (si es Tarjeta, recuerda cobrarlo en la terminal de
 // Mercado Pago antes de confirmar). Al confirmar se registra la venta igual
 // que antes — nada cambió del lado del servidor ni de Administración.
-const CACHE_NAME = 'zano-shell-v52';
+
+// v53: se agregó de vuelta, dentro de ese mismo bloque "Croissant", el
+// conteo de cuántos se han vendido hoy en efectivo y cuántos en tarjeta
+// (solo para ver, ya no son botones de +/−).
+const CACHE_NAME = 'zano-shell-v53';
 const APP_SHELL = [
   './',
   './index.html',
