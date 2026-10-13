@@ -26,8 +26,60 @@
 //                      de un pago cambia.
 const { getPool } = require('./_db');
 const { getUserFromRequest } = require('./_auth');
-const { crearPreferencia, obtenerPago } = require('./_mercadopago');
+const {
+  crearPreferencia,
+  obtenerPago,
+  crearCliente,
+  guardarTarjeta,
+  listarTarjetas,
+  borrarTarjeta,
+  crearPagoConToken
+} = require('./_mercadopago');
 const { notificarDueño, mandarCorreoCliente } = require('./_email');
+const { mandarPushAUsuario } = require('./_push');
+
+// Da el id de cliente de Mercado Pago de este usuario (ver
+// users.mercadopago_customer_id) — si todavía no tiene uno (primera vez que
+// usa "tarjetas guardadas"), lo crea en Mercado Pago y lo guarda.
+async function obtenerOCrearClienteId(pool, userId) {
+  const userRes = await pool.query('SELECT email, name, mercadopago_customer_id FROM users WHERE id = $1', [userId]);
+  const user = userRes.rows[0];
+  if (!user) throw new Error('Usuario no encontrado.');
+  if (user.mercadopago_customer_id) return user.mercadopago_customer_id;
+  const customerId = await crearCliente(user.email, user.name);
+  await pool.query('UPDATE users SET mercadopago_customer_id = $1 WHERE id = $2', [customerId, userId]);
+  return customerId;
+}
+
+// Traduce los motivos de rechazo más comunes de Mercado Pago a un mensaje
+// que cualquiera entienda — si no reconocemos el motivo, un mensaje
+// genérico sigue sirviendo.
+function mensajeRechazo(statusDetail) {
+  const MENSAJES = {
+    cc_rejected_bad_filled_security_code: 'El código de seguridad (CVV) no es correcto.',
+    cc_rejected_bad_filled_date: 'La fecha de vencimiento no es correcta.',
+    cc_rejected_bad_filled_other: 'Revisa los datos de la tarjeta e intenta de nuevo.',
+    cc_rejected_insufficient_amount: 'Tu tarjeta no tiene fondos suficientes.',
+    cc_rejected_call_for_authorize: 'Tu banco necesita que autorices este pago directamente con ellos antes de intentar de nuevo.',
+    cc_rejected_card_disabled: 'Tu tarjeta está deshabilitada para compras por internet — llama a tu banco para activarla.',
+    cc_rejected_duplicated_payment: 'Ya se hizo un pago igual a este hace un momento.',
+    cc_rejected_max_attempts: 'Llegaste al máximo de intentos permitidos con esta tarjeta.',
+    cc_rejected_high_risk: 'Mercado Pago no autorizó este pago por seguridad. Intenta con otra tarjeta.'
+  };
+  return MENSAJES[statusDetail] || 'Tu banco rechazó el pago. Intenta de nuevo o usa otra tarjeta.';
+}
+
+// Convierte la tarjeta como la da Mercado Pago a solo lo que la app necesita
+// mostrar — nunca mandamos el objeto completo (trae datos de más).
+function tarjetaParaApp(c) {
+  return {
+    id: c.id,
+    brand: (c.payment_method && c.payment_method.name) || 'Tarjeta',
+    lastFour: c.last_four_digits || '',
+    expMonth: c.expiration_month || null,
+    expYear: c.expiration_year || null
+  };
+}
 
 // Marca el pedido de esa semana como pagado y manda los correos de
 // confirmación — pero solo si no estaba pagado ya (puede llegar tanto por
@@ -81,7 +133,14 @@ async function marcarPedidoPagado({ userId, weekStart, paymentId, totalCents }) 
         notificarDueño(
           'Pedido pagado en ZANO',
           'Pago confirmado de ' + user.name + ' (' + user.email + '). Referencia de Mercado Pago: ' + paymentId
-        ).catch((err) => { console.error('[mercadopago] Error avisando al dueño:', err); })
+        ).catch((err) => { console.error('[mercadopago] Error avisando al dueño:', err); }),
+        // Notificación push (si la persona la activó en Perfil) — además del
+        // correo de arriba, igual de importante pero más inmediata.
+        mandarPushAUsuario(userId, {
+          title: 'ZANO',
+          body: '¡Tu pago se confirmó! Tu pedido de esta semana ya quedó agendado.',
+          url: '/#semana'
+        }).catch((err) => { console.error('[mercadopago] Error mandando notificación push:', err); })
       ]);
     }
   }
@@ -145,6 +204,18 @@ module.exports = async function handler(req, res) {
         res.status(400).json({ error: 'Falta la semana o el total del pedido.' });
         return;
       }
+
+      // Hace falta correo verificado para pagar (ver api/register.js) — así
+      // nos aseguramos de que el correo al que llegan la confirmación del
+      // pedido y los recordatorios sea de verdad. El resto de la app (armar
+      // la semana, ver el menú, etc.) sigue funcionando sin verificar.
+      const pool = getPool();
+      const verifRes = await pool.query('SELECT email_verified FROM users WHERE id = $1', [auth.uid]);
+      if (!verifRes.rows[0] || !verifRes.rows[0].email_verified) {
+        res.status(403).json({ error: 'Verifica tu correo antes de pagar — revisa el código que te mandamos al crear tu cuenta.' });
+        return;
+      }
+
       const amount = totalCents / 100;
       const origin = req.headers.origin || 'https://' + req.headers.host;
       const successUrl = origin + '/?zpay=1&week=' + encodeURIComponent(weekStart);
@@ -199,6 +270,106 @@ module.exports = async function handler(req, res) {
       res.status(500).json({
         error: 'No se pudo confirmar tu pago con Mercado Pago. Si ya viste el cargo en tu cuenta, contáctanos.'
       });
+    }
+    return;
+  }
+
+  // --- Tarjetas guardadas ------------------------------------------------
+
+  if (action === 'getCards') {
+    try {
+      const pool = getPool();
+      const customerId = await obtenerOCrearClienteId(pool, auth.uid);
+      const tarjetas = await listarTarjetas(customerId);
+      res.status(200).json({ cards: tarjetas.map(tarjetaParaApp) });
+    } catch (err) {
+      console.error('[mercadopago:getCards] Error:', err);
+      res.status(500).json({ error: 'No se pudieron cargar tus tarjetas guardadas.' });
+    }
+    return;
+  }
+
+  if (action === 'saveCard') {
+    try {
+      const { token: cardToken } = req.body || {};
+      if (!cardToken) {
+        res.status(400).json({ error: 'Falta la tarjeta a guardar.' });
+        return;
+      }
+      const pool = getPool();
+      const customerId = await obtenerOCrearClienteId(pool, auth.uid);
+      await guardarTarjeta(customerId, cardToken);
+      const tarjetas = await listarTarjetas(customerId);
+      res.status(200).json({ cards: tarjetas.map(tarjetaParaApp) });
+    } catch (err) {
+      console.error('[mercadopago:saveCard] Error:', err);
+      res.status(400).json({ error: err.message || 'No se pudo guardar la tarjeta. Revisa los datos e intenta de nuevo.' });
+    }
+    return;
+  }
+
+  if (action === 'deleteCard') {
+    try {
+      const { cardId } = req.body || {};
+      if (!cardId) {
+        res.status(400).json({ error: 'Falta la tarjeta a borrar.' });
+        return;
+      }
+      const pool = getPool();
+      const customerId = await obtenerOCrearClienteId(pool, auth.uid);
+      await borrarTarjeta(customerId, cardId);
+      const tarjetas = await listarTarjetas(customerId);
+      res.status(200).json({ cards: tarjetas.map(tarjetaParaApp) });
+    } catch (err) {
+      console.error('[mercadopago:deleteCard] Error:', err);
+      res.status(500).json({ error: 'No se pudo borrar esa tarjeta. Intenta de nuevo.' });
+    }
+    return;
+  }
+
+  if (action === 'payWithCard') {
+    try {
+      const { token: cardToken, weekStart, totalCents } = req.body || {};
+      if (!cardToken || !weekStart || !totalCents) {
+        res.status(400).json({ error: 'Falta la tarjeta, la semana o el total del pedido.' });
+        return;
+      }
+
+      // Mismo requisito que al pagar con Mercado Pago normal (ver
+      // action=create más arriba): correo verificado antes de cobrar.
+      const pool = getPool();
+      const verifRes = await pool.query('SELECT email_verified FROM users WHERE id = $1', [auth.uid]);
+      if (!verifRes.rows[0] || !verifRes.rows[0].email_verified) {
+        res.status(403).json({ error: 'Verifica tu correo antes de pagar — revisa el código que te mandamos al crear tu cuenta.' });
+        return;
+      }
+
+      const customerId = await obtenerOCrearClienteId(pool, auth.uid);
+      const pago = await crearPagoConToken({
+        amount: totalCents / 100,
+        cardToken,
+        description: 'Pedido semanal ZANO',
+        externalReference: auth.uid + ':' + weekStart,
+        customerId
+      });
+
+      if (pago.status === 'approved') {
+        await marcarPedidoPagado({ userId: auth.uid, weekStart, paymentId: pago.id, totalCents });
+        res.status(200).json({ ok: true, paymentId: pago.id });
+        return;
+      }
+      if (pago.status === 'in_process' || pago.status === 'pending') {
+        res.status(200).json({
+          ok: false,
+          pendiente: true,
+          error: 'Tu pago quedó pendiente de confirmar. En cuanto se confirme, tu pedido queda agendado solo — te llegará un correo.'
+        });
+        return;
+      }
+      res.status(400).json({ error: mensajeRechazo(pago.status_detail) });
+    } catch (err) {
+      console.error('[mercadopago:payWithCard] Error:', err);
+      res.status(500).json({ error: 'No se pudo cobrar con esa tarjeta. Si ya viste el cargo en tu cuenta, contáctanos.' });
     }
     return;
   }
