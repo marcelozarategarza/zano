@@ -234,7 +234,13 @@
 // v57: se cambió la foto de Yogurt Griego por una nueva (mismo nombre de
 // archivo, images/yogurt-griego.jpg) — se sube la versión del caché para
 // que el teléfono no siga mostrando la foto vieja guardada.
-const CACHE_NAME = 'zano-shell-v57';
+// v58: la app ahora cambia de colores sola cuando el iPhone tiene activado
+// el modo oscuro (Ajustes > Pantalla y brillo > Oscuro) — no hay botón para
+// esto en la app, se detecta solo. Se tocaron más de 500 lugares de color
+// en index.html (y también admin.html/staff.html, las páginas de "agregar
+// a pantalla de inicio"), así que si algo se ve mal en modo oscuro (texto
+// que no se lea, algo que se pierda), avisar para ajustarlo.
+const CACHE_NAME = 'zano-shell-v58';
 const APP_SHELL = [
   './',
   './index.html',
