@@ -457,6 +457,14 @@ let state = {
   lastPaymentId: null,
   perfilMetodosOpen: false,
   perfilInstitucionOpen: false,
+  perfilNotisOpen: false,
+
+  // Notificaciones push (ver Perfil > Cuenta > Notificaciones, y
+  // activarNotificaciones()/desactivarNotificaciones() más abajo).
+  notifSuscrito: false,
+  notifChecked: false,
+  notifCargando: false,
+  notifError: '',
   ayudaOpen: false,
   ayudaError: '',
   ayudaSent: false,
@@ -521,6 +529,18 @@ let state = {
   adminMetaSaved: false,
   adminCroissantPriceSaving: false,
   adminCroissantPriceSaved: false,
+
+  // "Aviso a clientes" (notificación push, ej. una promoción) — a todos o
+  // a uno solo (adminNotifTargetId vacío = todos; con un id, solo ese
+  // cliente) — ver Administración > Gastos y api/admin-costs.js,
+  // tipo='notificacion'.
+  adminNotifTargetId: '',
+  adminNotifTargetLabel: '',
+  adminNotifConfirmOpen: false,
+  adminNotifSending: false,
+  adminNotifSent: false,
+  adminNotifSentCount: 0,
+  adminNotifError: '',
 
   // Panel de cocina/trabajadores (ver /#staff) — contraseña propia
   // (STAFF_PASSWORD), separada de la de administrador: el personal ve y
@@ -1615,6 +1635,61 @@ async function saveAdminCroissantPrice() {
   }
 }
 
+// "Aviso a clientes" (Administración > Gastos) — manda una notificación
+// push, a TODOS los que ya la tengan activada en su teléfono (ej. una
+// promoción) o a UN solo cliente elegido en el selector (ej. para avisarle
+// algo puntual a esa persona). Pide confirmar antes de mandarla de verdad
+// (pedirConfirmacionNotifMasiva), porque a diferencia de todo lo demás en
+// Administración, esto no se puede deshacer una vez enviado.
+function pedirConfirmacionNotifMasiva() {
+  const mensajeInput = document.getElementById('admin-notif-mensaje');
+  const clienteSelect = document.getElementById('admin-notif-cliente');
+  const texto = mensajeInput ? mensajeInput.value.trim() : '';
+  if (!texto) {
+    setState({ adminNotifError: 'Escribe el mensaje antes de enviarlo.' });
+    return;
+  }
+  const targetId = clienteSelect ? clienteSelect.value : '';
+  const targetLabel = (targetId && clienteSelect.selectedOptions && clienteSelect.selectedOptions[0])
+    ? clienteSelect.selectedOptions[0].textContent
+    : '';
+  setState({ adminNotifConfirmOpen: true, adminNotifError: '', adminNotifTargetId: targetId, adminNotifTargetLabel: targetLabel });
+}
+
+async function enviarNotificacionMasiva() {
+  const tituloInput = document.getElementById('admin-notif-titulo');
+  const mensajeInput = document.getElementById('admin-notif-mensaje');
+  const texto = mensajeInput ? mensajeInput.value.trim() : '';
+  if (!texto) {
+    setState({ adminNotifError: 'Escribe el mensaje antes de enviarlo.', adminNotifConfirmOpen: false });
+    return;
+  }
+  setState({ adminNotifSending: true, adminNotifError: '', adminNotifConfirmOpen: false });
+  try {
+    const r = await apiFetch('/api/admin-costs', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + state.adminToken },
+      body: {
+        tipo: 'notificacion',
+        titulo: tituloInput ? tituloInput.value.trim() : '',
+        mensaje: texto,
+        userId: state.adminNotifTargetId || null
+      }
+    });
+    if (r.ok && r.data && r.data.ok) {
+      setState({ adminNotifSending: false, adminNotifSent: true, adminNotifSentCount: r.data.enviados || 0 });
+    } else {
+      setState({ adminNotifSending: false, adminNotifError: (r.data && r.data.error) || 'No se pudo mandar la notificación. Intenta de nuevo.' });
+    }
+  } catch (e) {
+    setState({ adminNotifSending: false, adminNotifError: 'No hay conexión con el servidor.' });
+  }
+}
+
+function reiniciarNotifMasiva() {
+  setState({ adminNotifSent: false, adminNotifSentCount: 0, adminNotifError: '', adminNotifTargetId: '', adminNotifTargetLabel: '' });
+}
+
 // ---------------------------------------------------------------------
 // Panel de cocina/trabajadores (ver /#staff) — pedidos de esta semana con
 // su estatus de preparación, y el conteo de croissants vendidos hoy sin
@@ -1824,6 +1899,9 @@ function logout() {
     lastPaymentId: null,
     perfilMetodosOpen: false,
     perfilInstitucionOpen: false,
+    perfilNotisOpen: false,
+    notifChecked: false,
+    notifError: '',
     ayudaOpen: false,
     ayudaError: '',
     ayudaSent: false,
@@ -1902,6 +1980,114 @@ function getMp() {
   if (typeof MercadoPago === 'undefined' || MERCADOPAGO_PUBLIC_KEY === 'TU_PUBLIC_KEY') return null;
   mpClienteInstancia = new MercadoPago(MERCADOPAGO_PUBLIC_KEY, { locale: 'es-MX' });
   return mpClienteInstancia;
+}
+
+// ---------------------------------------------------------------------
+// Notificaciones push a clientes (ver Perfil > Cuenta > Notificaciones,
+// sw.js y api/_push.js). Llave PÚBLICA "VAPID" — distinta de las de Mercado
+// Pago/EmailJS, y generada aparte: no es una cuenta en ningún servicio, solo
+// un par de llaves que identifican a ZANO como quien manda la notificación.
+// Su pareja PRIVADA vive solo en Vercel (VAPID_PRIVATE_KEY), nunca aquí.
+// ---------------------------------------------------------------------
+const VAPID_PUBLIC_KEY = 'BLiDpgq51XP3enA64-C8Eca2-L5yCL4MVLc1zxJOndtULWqO94uzORoES1seZ8z5_3tIQzMmb0f9G6jdc-QQCxQ';
+
+// Convierte la llave pública (texto) al formato de bytes que pide
+// pushManager.subscribe() — es un paso mecánico fijo, no hay que tocarlo.
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+function soportaNotificaciones() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+
+// En iPhone, activar notificaciones SOLO funciona si la app ya está
+// agregada a la pantalla de inicio (modo standalone) — en una pestaña
+// normal de Safari, iOS no lo permite aunque el código esté bien.
+function esAppInstalada() {
+  return (window.navigator.standalone === true) ||
+    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+}
+
+// Revisa, sin preguntarle nada a la persona, si este dispositivo YA tiene
+// notificaciones activadas (por ejemplo, al volver a abrir la app) — así el
+// botón en Perfil ya aparece como "Activadas" en vez de ofrecer activarlas
+// de nuevo.
+async function verificarSuscripcionNotis() {
+  if (!soportaNotificaciones() || !state.authToken) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    setState({ notifSuscrito: !!sub, notifChecked: true });
+  } catch (e) { setState({ notifChecked: true }); }
+}
+
+// Pide permiso y activa las notificaciones en ESTE dispositivo. Tiene que
+// dispararse por un toque directo de la persona (el botón "Activar
+// notificaciones" en Perfil) — no se puede hacer solo, al abrir la app, eso
+// lo bloquea el propio iPhone.
+async function activarNotificaciones() {
+  if (state.notifCargando) return;
+  if (!soportaNotificaciones()) {
+    setState({ notifError: 'Tu navegador no permite activar notificaciones.' });
+    return;
+  }
+  if (!esAppInstalada()) {
+    setState({ notifError: 'Primero agrega ZANO a tu pantalla de inicio (toca Compartir en Safari y luego "Agregar a pantalla de inicio") y ábrela desde ahí — en una pestaña normal de Safari, el iPhone no deja activar notificaciones.' });
+    return;
+  }
+  setState({ notifCargando: true, notifError: '' });
+  try {
+    const permiso = await Notification.requestPermission();
+    if (permiso !== 'granted') {
+      setState({ notifCargando: false, notifError: 'No se activaron — hace falta tu permiso (revisa Ajustes > Notificaciones > ZANO en tu iPhone si lo bloqueaste por error).' });
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    });
+    const r = await apiFetch('/api/order-save', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + state.authToken },
+      body: { action: 'pushSubscribe', subscription: sub.toJSON() }
+    });
+    if (!r.ok) {
+      setState({ notifCargando: false, notifError: (r.data && r.data.error) || 'No se pudieron guardar las notificaciones. Intenta de nuevo.' });
+      return;
+    }
+    setState({ notifCargando: false, notifSuscrito: true, notifError: '' });
+  } catch (err) {
+    setState({ notifCargando: false, notifError: 'No se pudieron activar las notificaciones. Intenta de nuevo.' });
+  }
+}
+
+// Desactiva las notificaciones en ESTE dispositivo.
+async function desactivarNotificaciones() {
+  if (state.notifCargando) return;
+  setState({ notifCargando: true, notifError: '' });
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      const endpoint = sub.endpoint;
+      await sub.unsubscribe().catch(() => {});
+      await apiFetch('/api/order-save', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + state.authToken },
+        body: { action: 'pushUnsubscribe', endpoint }
+      }).catch(() => {});
+    }
+    setState({ notifCargando: false, notifSuscrito: false });
+  } catch (err) {
+    setState({ notifCargando: false, notifError: 'No se pudieron desactivar. Intenta de nuevo.' });
+  }
 }
 
 function copiarTexto(texto) {
@@ -2737,6 +2923,38 @@ function renderAdminGastos(data) {
         ${state.adminCroissantPriceSaved ? `<div style="display:flex;align-items:center;gap:6px;justify-content:center;">${icon('check', { w: 14, h: 14, stroke: 'var(--green)', sw: 2.2 })}<span style="font-size:12px;color:var(--green);">Guardado.</span></div>` : ''}
       </div>
 
+      <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:8px;">
+        <div style="font-size:11.5px;font-weight:700;color:var(--muted);">AVISO A CLIENTES</div>
+        ${state.adminNotifSent ? `
+        ${state.adminNotifSentCount > 0 ? `
+        <div style="display:flex;align-items:center;gap:6px;">${icon('check', { w: 14, h: 14, stroke: 'var(--green)', sw: 2.2 })}<span style="font-size:12.5px;color:var(--green);">Enviada a ${state.adminNotifSentCount} dispositivo(s) activado(s).</span></div>
+        ` : `
+        <span style="font-size:12.5px;color:var(--amber-text);">No se mandó a ningún dispositivo — ${state.adminNotifTargetLabel ? esc(state.adminNotifTargetLabel) + ' todavía no activa' : 'ningún cliente tiene activadas'} las notificaciones.</span>
+        `}
+        <button onclick="reiniciarNotifMasiva()" style="font-size:12.5px;font-weight:700;color:var(--green);align-self:flex-start;">Mandar otra</button>
+        ` : `
+        <span style="font-size:11.5px;line-height:1.4;color:var(--muted);">Manda una notificación a todos los clientes que ya la tengan activada en su teléfono (Perfil > Cuenta > Notificaciones), o elige uno solo abajo para avisarle algo puntual a esa persona. No le llega a quien no la haya activado, y no se puede deshacer una vez enviada.</span>
+        <select id="admin-notif-cliente">
+          <option value="">Todos los clientes</option>
+          ${(data.customers || []).map((c) => `<option value="${c.id}">${esc(c.name)} — ${esc(c.email)}</option>`).join('')}
+        </select>
+        <input id="admin-notif-titulo" type="text" maxlength="40" placeholder="Título (opcional — por defecto ZANO)">
+        <textarea id="admin-notif-mensaje" placeholder="Ej. 2x1 en Dátiles Reese's solo hoy — pide tu semana antes de que se acabe"></textarea>
+        ${state.adminNotifError ? `<span style="font-size:11.5px;color:var(--danger);">${esc(state.adminNotifError)}</span>` : ''}
+        ${state.adminNotifConfirmOpen ? `
+        <div style="display:flex;flex-direction:column;gap:8px;background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:10px;padding:10px;">
+          <span style="font-size:11.5px;line-height:1.4;color:var(--amber-text);">¿Seguro? Esto le llega de inmediato a ${state.adminNotifTargetId ? esc(state.adminNotifTargetLabel) : 'TODOS los clientes con notificaciones activadas'}.</span>
+          <div style="display:flex;gap:8px;">
+            <button onclick="enviarNotificacionMasiva()" ${state.adminNotifSending ? 'disabled' : ''} style="flex:1;padding:10px;border-radius:10px;font-size:12.5px;font-weight:700;background:${ACCENT};color:var(--on-accent);">${state.adminNotifSending ? 'Enviando…' : (state.adminNotifTargetId ? 'Sí, enviar' : 'Sí, enviar a todos')}</button>
+            <button onclick="setState({adminNotifConfirmOpen:false})" style="flex:1;padding:10px;border-radius:10px;font-size:12.5px;font-weight:700;background:var(--chip);color:var(--text);">Cancelar</button>
+          </div>
+        </div>
+        ` : `
+        <button onclick="pedirConfirmacionNotifMasiva()" class="pill-btn">Enviar</button>
+        `}
+        `}
+      </div>
+
       <div>
         <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:6px;">SEMANA (Ganancia bruta)</div>
         ${renderAdminWeekPicker(data)}
@@ -3454,7 +3672,7 @@ function renderPerfil() {
       <div>
         <span style="font-size:14.5px;font-weight:700;color:var(--text);">Cuenta</span>
         <div class="card" style="display:flex;flex-direction:column;margin-top:10px;overflow:hidden;">
-          <button onclick="setState({perfilInstitucionOpen: !state.perfilInstitucionOpen, perfilMetodosOpen:false})" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid var(--chip);text-align:left;">
+          <button onclick="setState({perfilInstitucionOpen: !state.perfilInstitucionOpen, perfilMetodosOpen:false, perfilNotisOpen:false})" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid var(--chip);text-align:left;">
             <span style="font-size:14px;font-weight:600;color:var(--text);">Mi institución</span>
             ${icon(state.perfilInstitucionOpen ? 'chevronDown' : 'chevronRight', { w: 18, h: 18 })}
           </button>
@@ -3469,7 +3687,7 @@ function renderPerfil() {
             }).join('')}
           </div>` : ''}
 
-          <button onclick="setState({perfilMetodosOpen: !state.perfilMetodosOpen, perfilInstitucionOpen:false})" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid var(--chip);text-align:left;">
+          <button onclick="setState({perfilMetodosOpen: !state.perfilMetodosOpen, perfilInstitucionOpen:false, perfilNotisOpen:false})" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid var(--chip);text-align:left;">
             <span style="font-size:14px;font-weight:600;color:var(--text);">Métodos de pago</span>
             ${icon(state.perfilMetodosOpen ? 'chevronDown' : 'chevronRight', { w: 18, h: 18 })}
           </button>
@@ -3519,7 +3737,23 @@ function renderPerfil() {
             `).join('')}
           </div>` : ''}
 
-          <button onclick="setState({ayudaOpen: !state.ayudaOpen, perfilInstitucionOpen:false, perfilMetodosOpen:false, ayudaError:''})" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:15px 16px;text-align:left;">
+          <button onclick="setState({perfilNotisOpen: !state.perfilNotisOpen, perfilInstitucionOpen:false, perfilMetodosOpen:false}); verificarSuscripcionNotis();" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid var(--chip);text-align:left;">
+            <span style="font-size:14px;font-weight:600;color:var(--text);">Notificaciones</span>
+            ${icon(state.perfilNotisOpen ? 'chevronDown' : 'chevronRight', { w: 18, h: 18 })}
+          </button>
+          ${state.perfilNotisOpen ? `
+          <div style="padding:10px 16px 16px 28px;display:flex;flex-direction:column;gap:10px;">
+            <span style="font-size:11px;line-height:1.4;color:var(--muted);">Avísanos que te llegue un aviso a tu iPhone cuando se confirme tu pago y cuando cocina marque listo tu pedido del día. Solo funciona con la app agregada a tu pantalla de inicio (iOS 16.4 o más nuevo).</span>
+            ${state.notifError ? `<span style="font-size:11.5px;line-height:1.4;color:var(--danger);">${esc(state.notifError)}</span>` : ''}
+            ${state.notifSuscrito ? `
+            <div class="row">
+              <span style="font-size:12.5px;font-weight:700;color:var(--green);">Activadas en este dispositivo</span>
+              <button onclick="desactivarNotificaciones()" ${state.notifCargando ? 'disabled' : ''} style="font-size:12px;font-weight:700;color:var(--danger);white-space:nowrap;">${state.notifCargando ? 'Un momento…' : 'Desactivar'}</button>
+            </div>` : `
+            <button onclick="activarNotificaciones()" ${state.notifCargando ? 'disabled' : ''} style="width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:${ACCENT};color:var(--on-accent);border-radius:12px;padding:13px;font-size:13.5px;font-weight:700;opacity:${state.notifCargando ? '0.6' : '1'};">${state.notifCargando ? 'Activando…' : 'Activar notificaciones'}</button>`}
+          </div>` : ''}
+
+          <button onclick="setState({ayudaOpen: !state.ayudaOpen, perfilInstitucionOpen:false, perfilMetodosOpen:false, perfilNotisOpen:false, ayudaError:''})" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:15px 16px;text-align:left;">
             <span style="font-size:14px;font-weight:600;color:var(--text);">Ayuda</span>
             ${icon(state.ayudaOpen ? 'chevronDown' : 'chevronRight', { w: 18, h: 18 })}
           </button>
@@ -3711,6 +3945,13 @@ function render() {
   // cada vez que esta pantalla se vuelve a dibujar (son casillas nuevas).
   if ((state.screen === 'perfil' || state.screen === 'pago') && state.authToken && !state.savedCardsLoaded && !state.savedCardsLoading) {
     cargarTarjetas();
+  }
+
+  // Notificaciones: revisamos una sola vez por sesión si este dispositivo
+  // ya las tenía activadas de antes, para que el botón en Perfil muestre
+  // "Activadas" desde el principio en vez de ofrecer activarlas de nuevo.
+  if (state.screen === 'perfil' && state.authToken && !state.notifChecked) {
+    verificarSuscripcionNotis();
   }
   if (state.screen === 'perfil' && state.nuevaTarjetaOpen) {
     montarFormularioTarjeta();
