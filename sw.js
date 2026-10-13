@@ -240,7 +240,10 @@
 // en index.html (y también admin.html/staff.html, las páginas de "agregar
 // a pantalla de inicio"), así que si algo se ve mal en modo oscuro (texto
 // que no se lea, algo que se pierda), avisar para ajustarlo.
-const CACHE_NAME = 'zano-shell-v58';
+// v59: se cambió otra vez la foto de Yogurt Griego por una nueva (mismo
+// archivo, images/yogurt-griego.jpg) — se sube la versión del caché para
+// que el teléfono no se quede con la foto vieja guardada.
+const CACHE_NAME = 'zano-shell-v59';
 const APP_SHELL = [
   './',
   './index.html',
