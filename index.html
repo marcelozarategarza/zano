@@ -273,10 +273,10 @@
     background: var(--card);
   }
   /* Los íconos/texto de la barra estaban centrados solo dentro de la
-     parte de arriba (36px), dejando toda la franja reservada vacía
+     parte de arriba (44px), dejando toda la franja reservada vacía
      debajo, sin usar. Este "transform" los recorre hacia abajo la mitad
      de esa franja, para que queden centrados en medio de TODA la barra
-     (36px + franja), no solo en la parte de arriba. En la Mac no se
+     (44px + franja), no solo en la parte de arriba. En la Mac no se
      nota nada (ahí la franja mide 0px). En el iPhone real, esto los
      acerca aún más a la zona del gesto de inicio — ya se sabe y se
      acepta el riesgo, pedido a propósito. */
@@ -3668,7 +3668,7 @@ function render() {
   else if (state.screen === 'perfil') html = renderPerfil();
   else if (state.screen === 'perfilInfo') html = renderPerfilInfo();
 
-  contentEl.style.bottom = showNav ? 'calc(36px + (env(safe-area-inset-bottom, 0px) * 0.31640625))' : '0px';
+  contentEl.style.bottom = showNav ? 'calc(44px + (env(safe-area-inset-bottom, 0px) * 0.31640625))' : '0px';
   contentEl.style.overflowY = state.screen === 'landing' ? 'hidden' : 'auto';
   contentEl.innerHTML = html;
   contentEl.scrollTop = 0;
