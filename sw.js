@@ -243,7 +243,9 @@
 // v59: se cambió otra vez la foto de Yogurt Griego por una nueva (mismo
 // archivo, images/yogurt-griego.jpg) — se sube la versión del caché para
 // que el teléfono no se quede con la foto vieja guardada.
-const CACHE_NAME = 'zano-shell-v59';
+// v60: la barra de navegación de abajo quedó un poco más alta (de 36px a
+// 44px, el mínimo que recomienda Apple para tocar botones cómodo).
+const CACHE_NAME = 'zano-shell-v60';
 const APP_SHELL = [
   './',
   './index.html',
