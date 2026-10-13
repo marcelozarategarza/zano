@@ -221,16 +221,18 @@
   #nav {
     position: absolute;
     left: 0; right: 0; bottom: 0;
-    /* El "36px" es lo que de verdad se puede achicar (íconos + texto +
-       aire). El "env(safe-area-inset-bottom)" se redujo OTRO 1/4 más
+    /* El "44px" (antes 36px, se subió a pedido) es lo que de verdad se
+       puede achicar (íconos + texto + aire) — 44px es además el tamaño
+       mínimo que recomienda Apple para que un botón se toque cómodo con
+       el dedo. El "env(safe-area-inset-bottom)" se redujo OTRO 1/4 más
        (ahora queda al 31.640625% de lo real, era 42.1875%) A PROPÓSITO Y
        A SABIENDAS del riesgo: mientras menos franja se deja, más se
        meten los íconos dentro de la zona real del gesto de "ir a inicio"
        del iPhone. Se dejó así porque así se pidió explícitamente,
-       aceptando ese riesgo. Esa franja es del mismo blanco que el resto
+       aceptando ese riesgo. Esa franja es del mismo color que el resto
        de la barra (y que el fondo de la página, ver más abajo en el JS),
-       así que todo se ve como un solo bloque blanco. */
-    height: calc(36px + (env(safe-area-inset-bottom, 0px) * 0.31640625));
+       así que todo se ve como un solo bloque. */
+    height: calc(44px + (env(safe-area-inset-bottom, 0px) * 0.31640625));
     background: var(--card);
     border-top: 1px solid var(--border);
     display: flex;
