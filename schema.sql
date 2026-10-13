@@ -32,6 +32,13 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAU
 ALTER TABLE users ADD COLUMN IF NOT EXISTS verify_code_hash TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS verify_code_expires TIMESTAMPTZ;
 
+-- Tarjetas guardadas: no guardamos aquí ningún dato de la tarjeta (eso vive
+-- solo en Mercado Pago, nunca en nuestra base) — solo el identificador del
+-- "cliente" que Mercado Pago crea la primera vez que alguien guarda o paga
+-- con una tarjeta, para poder pedirle después la lista de sus tarjetas
+-- guardadas. Ver api/mercadopago.js (action=getCards/saveCard/deleteCard).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS mercadopago_customer_id TEXT;
+
 CREATE TABLE IF NOT EXISTS weekly_orders (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -138,3 +145,21 @@ CREATE TABLE IF NOT EXISTS login_throttle (
   locked_until TIMESTAMPTZ,
   PRIMARY KEY (scope, identifier)
 );
+
+-- Notificaciones push a clientes (Web Push estándar — ver api/_push.js). Cada
+-- fila es UN dispositivo donde esa persona activó "Notificaciones" en Perfil
+-- (puede tener más de uno, por ejemplo su iPhone y una tablet). endpoint es
+-- único por dispositivo/navegador y lo da el propio teléfono al activarlas;
+-- p256dh y auth_key son las llaves de cifrado que vienen junto con él — sin
+-- estas tres cosas no se le puede mandar nada a ese dispositivo. Si el
+-- dispositivo deja de existir (se desinstaló la app, pasó mucho tiempo sin
+-- usarse), Web Push avisa con un error y _push.js borra la fila sola.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth_key TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions (user_id);
