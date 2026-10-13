@@ -217,7 +217,11 @@
 // v53: se agregó de vuelta, dentro de ese mismo bloque "Croissant", el
 // conteo de cuántos se han vendido hoy en efectivo y cuántos en tarjeta
 // (solo para ver, ya no son botones de +/−).
-const CACHE_NAME = 'zano-shell-v53';
+
+// v54: nuevo platillo en "Bebidas, Snacks y Cheat Meals" — se completó
+// "Yogurt Griego" con su precio, foto y macros (antes era un lugar vacío
+// con [PRECIO]).
+const CACHE_NAME = 'zano-shell-v54';
 const APP_SHELL = [
   './',
   './index.html',
