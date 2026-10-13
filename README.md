@@ -206,10 +206,31 @@ En Perfil → Pedidos próximos, cada día con un pedido ya pagado trae un botó
 
 Se bloquea solo (con un mensaje explicándolo) si cocina ya marcó ese día como "Empezar a preparar" o más adelante en el panel de cocina — así nadie mueve un pedido que ya se está cocinando sin que se enteren a tiempo. No necesita ninguna configuración nueva, ni en Vercel ni en `index.html`.
 
+## Notificaciones push a clientes
+
+En Perfil → Cuenta → Notificaciones, cualquier cliente puede activar que le llegue un aviso directo a su iPhone en dos momentos: cuando se confirma el pago de su semana, y cuando cocina marca listo el pedido de un día (panel de Cocina). No es un correo ni un mensaje de texto — es una notificación de verdad, igual a las que manda cualquier app.
+
+**Importante, es una limitación de Apple, no de esta app:** en iPhone, activar notificaciones SOLO funciona si la persona ya agregó ZANO a su pantalla de inicio (botón Compartir de Safari → "Agregar a pantalla de inicio") y la abre desde ahí — además, su iPhone necesita iOS 16.4 o más nuevo (de 2023 en adelante). Si la abre solo desde un link de Safari, el botón de activar le va a explicar eso mismo en vez de fallar sin decir por qué.
+
+Para que esto funcione de verdad hace falta UN dato en Vercel, distinto a todo lo demás (Mercado Pago, EmailJS, etc.): la llave privada "VAPID". A diferencia de la Public Key de Mercado Pago, esta no se saca de ningún panel ni cuenta — es un par de llaves que se genera una sola vez (ya se generó, te la paso aparte de este archivo, nunca en un documento que subas a GitHub) y nunca vence.
+
+1. En [vercel.com/dashboard](https://vercel.com/dashboard), entra a tu proyecto de ZANO → **Settings** → **Environment Variables**.
+2. Agrega una variable nueva: nombre `VAPID_PRIVATE_KEY`, valor la llave privada que te pasé por chat (NO la pegues aquí en el README ni en ningún archivo que subas a GitHub — esta sí es secreta, a diferencia de la Public Key de Mercado Pago). Guarda.
+3. Ve a la pestaña **Deployments** y dale **Redeploy** al último despliegue (o sube cualquier archivo nuevo a GitHub).
+
+La llave pública (`VAPID_PUBLIC_KEY`) ya está puesta directo en `index.html` — esa sí es segura de exponer ahí, igual que la Public Key de Mercado Pago.
+
+Mientras no agregues `VAPID_PRIVATE_KEY`, la app sigue funcionando normal — el botón "Activar notificaciones" simplemente no manda nada (no se rompe nada ni aparece ningún error para el cliente, solo no le llegaría el aviso).
+
+### Mandar un aviso a clientes (ej. una promoción, o algo puntual a uno solo)
+
+En Administración → Gastos, hasta abajo del todo hay una tarjeta "Aviso a clientes". Ahí eliges, en el selector, si es para **todos los clientes** o para **uno solo** (aparecen todos por nombre y correo, igual que en la pestaña Clientes) — útil, por ejemplo, para avisarle algo puntual solo a esa persona en vez de a todos. Escribes un título (opcional) y el mensaje, tocas "Enviar", confirmas una vez más (no se puede deshacer) y le llega esa misma notificación, de inmediato, a quien elegiste (o a todos) — solo a quien ya tenga notificaciones activadas en su teléfono, a nadie más. Si el cliente elegido todavía no las ha activado, te avisa que no le llegó a nadie en vez de decir "Enviada" sin que sea cierto. No hace falta configurar nada aparte de lo de arriba (`VAPID_PRIVATE_KEY`).
+
 ## Qué falta / qué revisar
 
 - Los 7 platillos de "Bebidas, Snacks y Cheat Meals" (Yogurt Griego, Bowl de Frutas, Postres y Snacks, Jugo Verde, Jugo de Naranja, Vampiro, Toronja) siguen con precio `[PRECIO]` — en cuanto me mandes su costeo los lleno.
 - **Aguacate**: quedó en $10.66 (el valor del costeo más reciente y completo del Poke, con 130g). Tu instrucción anterior había sido $12.30 — avísame si ese era un margen intencional o si nos quedamos con el $10.66 del costeo.
 - **Tarjetas guardadas (opcional)**: nuevo — para que la app deje guardar tarjetas, falta que pongas tu Public Key de Mercado Pago en `index.html` (`MERCADOPAGO_PUBLIC_KEY`) — ver la sección "Tarjetas guardadas (opcional)" más arriba. Mientras no la pongas, todo sigue funcionando normal, solo sin esa opción extra.
+- **Notificaciones push**: nuevo — falta que agregues `VAPID_PRIVATE_KEY` en las variables de entorno de Vercel (te paso el valor por chat) — ver la sección "Notificaciones push a clientes" más arriba. También hace falta correr en tu base de datos (SQL Editor de Neon) la parte nueva de `schema.sql` que crea la tabla `push_subscriptions` — es segura de volver a correr completa, no borra nada de lo que ya tienes.
 
 Cualquier ajuste de precios, macros o pantallas, mándamelo y actualizo el archivo.
