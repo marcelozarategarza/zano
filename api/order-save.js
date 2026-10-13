@@ -1,5 +1,5 @@
-// Tres cosas, para no gastar otra función serverless (ver límite de 12 del
-// plan gratuito de Vercel — ya está justo en el tope):
+// Varias cosas en un solo archivo, para no gastar otra función serverless
+// (ver límite de 12 del plan gratuito de Vercel — ya está justo en el tope):
 //   POST { }                   -> guarda (o actualiza) el pedido "en
 //           borrador" de la semana en curso. La app lo llama sola cuando la
 //           persona entra a la pantalla de Pagar — así, si deja el pedido a
@@ -7,6 +7,11 @@
 //   POST { action:'editEntrega' } -> para un pedido YA PAGADO: cambia el
 //           horario de recogida de un día, o mueve el platillo de ese día a
 //           otro día de la misma semana (ver "Editar entrega" en Perfil).
+//   POST { action:'pushSubscribe', subscription }   -> guarda este
+//           dispositivo para poder mandarle notificaciones (ver
+//           activarNotificaciones() en index.html y api/_push.js).
+//   POST { action:'pushUnsubscribe', endpoint }     -> deja de mandarle
+//           notificaciones a este dispositivo.
 //   GET  -> tu historial de pedidos YA PAGADOS (el más reciente primero,
 //           que incluye el de la semana que viene si ya la pagaste) — lo
 //           usa la pantalla de Perfil para "Pedidos próximos"/"Pedidos
@@ -99,6 +104,57 @@ async function handleEditEntrega(req, res, auth) {
   }
 }
 
+// Guarda (o actualiza) este dispositivo en push_subscriptions para poder
+// mandarle notificaciones — ver activarNotificaciones() en index.html. La
+// app manda aquí lo que le regresó el propio navegador al activarlas
+// (endpoint + las dos llaves de cifrado p256dh/auth), no un dato que nosotros
+// inventamos. ON CONFLICT (endpoint) por si la persona toca "Activar" dos
+// veces en el mismo dispositivo sin querer — no se duplica la fila.
+async function handlePushSubscribe(req, res, auth) {
+  try {
+    const { subscription } = req.body || {};
+    const endpoint = subscription && subscription.endpoint;
+    const p256dh = subscription && subscription.keys && subscription.keys.p256dh;
+    const authKey = subscription && subscription.keys && subscription.keys.auth;
+    if (!endpoint || !p256dh || !authKey) {
+      res.status(400).json({ error: 'Faltan datos de la suscripción a notificaciones.' });
+      return;
+    }
+    const pool = getPool();
+    await pool.query(
+      `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth_key)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (endpoint) DO UPDATE SET user_id = $1, p256dh = $3, auth_key = $4`,
+      [auth.uid, endpoint, p256dh, authKey]
+    );
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error('[order-save:pushSubscribe] Error:', err);
+    res.status(500).json({ error: 'No se pudo activar las notificaciones. Intenta de nuevo.' });
+  }
+}
+
+// Deja de mandarle notificaciones a este dispositivo (botón "Desactivar" en
+// Perfil, o cuando el navegador avisa que la suscripción ya no sirve).
+async function handlePushUnsubscribe(req, res, auth) {
+  try {
+    const { endpoint } = req.body || {};
+    if (!endpoint) {
+      res.status(400).json({ error: 'Falta el dispositivo a desactivar.' });
+      return;
+    }
+    const pool = getPool();
+    await pool.query(
+      `DELETE FROM push_subscriptions WHERE endpoint = $1 AND user_id = $2`,
+      [endpoint, auth.uid]
+    );
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error('[order-save:pushUnsubscribe] Error:', err);
+    res.status(500).json({ error: 'No se pudo desactivar las notificaciones. Intenta de nuevo.' });
+  }
+}
+
 module.exports = async function handler(req, res) {
   const auth = getUserFromRequest(req);
   if (!auth) {
@@ -108,6 +164,14 @@ module.exports = async function handler(req, res) {
 
   if (req.method === 'POST' && req.body && req.body.action === 'editEntrega') {
     return handleEditEntrega(req, res, auth);
+  }
+
+  if (req.method === 'POST' && req.body && req.body.action === 'pushSubscribe') {
+    return handlePushSubscribe(req, res, auth);
+  }
+
+  if (req.method === 'POST' && req.body && req.body.action === 'pushUnsubscribe') {
+    return handlePushUnsubscribe(req, res, auth);
   }
 
   if (req.method === 'GET') {
