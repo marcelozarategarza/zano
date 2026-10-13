@@ -230,7 +230,11 @@
 // precio de más (se estaba multiplicando dos veces).
 // v56: se corrigió la descripción de los Waffles Especiales — ahora dice
 // salchicha ahumada y proteína de caramelo (antes decía salchicha de res).
-const CACHE_NAME = 'zano-shell-v56';
+
+// v57: se cambió la foto de Yogurt Griego por una nueva (mismo nombre de
+// archivo, images/yogurt-griego.jpg) — se sube la versión del caché para
+// que el teléfono no siga mostrando la foto vieja guardada.
+const CACHE_NAME = 'zano-shell-v57';
 const APP_SHELL = [
   './',
   './index.html',
