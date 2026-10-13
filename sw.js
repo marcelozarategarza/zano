@@ -221,7 +221,16 @@
 // v54: nuevo platillo en "Bebidas, Snacks y Cheat Meals" — se completó
 // "Yogurt Griego" con su precio, foto y macros (antes era un lugar vacío
 // con [PRECIO]).
-const CACHE_NAME = 'zano-shell-v54';
+// v55: nuevo platillo "Dátiles Reese's" en Bebidas, Snacks y Cheat Meals —
+// 3 dátiles por $50, con opción de agregar más (cada uno suma $11). También
+// se corrigió que al subir la cantidad de CUALQUIER platillo (Huevos, Poke,
+// Ensalada, Pasta, etc.) ahora los macros (proteína, carbos, grasa, fibra,
+// kcal, peso) suben junto con el precio — antes solo subía el precio. De
+// paso se arregló que editar la cantidad de un día ya elegido inflara el
+// precio de más (se estaba multiplicando dos veces).
+// v56: se corrigió la descripción de los Waffles Especiales — ahora dice
+// salchicha ahumada y proteína de caramelo (antes decía salchicha de res).
+const CACHE_NAME = 'zano-shell-v56';
 const APP_SHELL = [
   './',
   './index.html',
