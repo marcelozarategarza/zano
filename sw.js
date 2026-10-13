@@ -248,7 +248,31 @@
 // v61: se corrigió que, al subir la barra de abajo a 44px, el contenido se
 // quedó reservando espacio para la medida vieja (36px) — por 8px de
 // diferencia, la barra se podía encimar un poquito con el contenido.
-const CACHE_NAME = 'zano-shell-v61';
+
+// v62: nuevo — notificaciones push a clientes. En Perfil > Cuenta >
+// Notificaciones, cualquier cliente puede activarlas en su dispositivo; a
+// partir de ahí le llega un aviso solo cuando se confirma el pago de su
+// semana y cuando cocina marca listo el pedido de un día. Es la parte del
+// lado del teléfono (recibir el aviso y abrir la app al tocarlo) — el envío
+// real lo hace el servidor (api/_push.js). SOLO funciona en iPhone con iOS
+// 16.4 o más nuevo, y nada más si la persona ya agregó la app a su pantalla
+// de inicio (no funciona abriéndola solo desde un link de Safari). Falta
+// que el dueño agregue VAPID_PRIVATE_KEY (y VAPID_PUBLIC_KEY en index.html)
+// en las variables de entorno de Vercel para que funcione de verdad — ver
+// README.
+
+// v63: nuevo — en Administración > Gastos, "Aviso a todos los clientes":
+// le manda la MISMA notificación push a TODOS los clientes que ya la
+// tengan activada (ej. para avisar una promoción), con un paso de "¿Seguro?"
+// antes de mandarla de verdad porque no se puede deshacer. Solo le llega a
+// quien ya activó notificaciones en Perfil — a nadie más, sin ningún error.
+
+// v64: esa misma tarjeta ("Aviso a clientes") ahora trae un selector para
+// elegir UN cliente en particular en vez de todos — útil para avisarle algo
+// puntual solo a esa persona. Si no se elige nadie, se manda a todos como
+// antes. Si el cliente elegido no tiene notificaciones activadas en ningún
+// dispositivo, se avisa en vez de decir "Enviada" sin que le haya llegado.
+const CACHE_NAME = 'zano-shell-v64';
 const APP_SHELL = [
   './',
   './index.html',
@@ -278,6 +302,44 @@ self.addEventListener('activate', (event) => {
     ))
   );
   self.clients.claim();
+});
+
+// Notificación push recibida (ver api/_push.js, que es quien la manda desde
+// el servidor). "payload" es el mismo objeto {title, body, url} que arma
+// api/_push.js — si por lo que sea llega vacío o raro, se muestra un aviso
+// genérico en vez de tronar.
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; } catch (e) { /* no era JSON */ }
+  const title = payload.title || 'ZANO';
+  const body = payload.body || 'Tienes una actualización en ZANO.';
+  const url = payload.url || '/';
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: './icons/icon-192.png',
+      badge: './icons/icon-192.png',
+      data: { url }
+    })
+  );
+});
+
+// Al tocar la notificación: si la app ya está abierta en una pestaña,
+// la enfoca y la manda a la pantalla indicada (url); si no, abre una nueva.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) {
+          client.navigate(url).catch(() => {});
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(url);
+    })
+  );
 });
 
 self.addEventListener('fetch', (event) => {
