@@ -245,7 +245,10 @@
 // que el teléfono no se quede con la foto vieja guardada.
 // v60: la barra de navegación de abajo quedó un poco más alta (de 36px a
 // 44px, el mínimo que recomienda Apple para tocar botones cómodo).
-const CACHE_NAME = 'zano-shell-v60';
+// v61: se corrigió que, al subir la barra de abajo a 44px, el contenido se
+// quedó reservando espacio para la medida vieja (36px) — por 8px de
+// diferencia, la barra se podía encimar un poquito con el contenido.
+const CACHE_NAME = 'zano-shell-v61';
 const APP_SHELL = [
   './',
   './index.html',
