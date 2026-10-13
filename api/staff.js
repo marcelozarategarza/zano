@@ -4,12 +4,15 @@
 // Qué acción hacer se decide con ?action=... en la URL:
 //   POST /api/staff?action=login          { password }
 //   GET  /api/staff?action=data
-//   POST /api/staff?action=update-status  { orderId, dia, status }
+//   POST /api/staff?action=update-status  { orderId, dia, status } — si
+//           status es 'listo', de paso le manda una notificación push al
+//           cliente (si la activó), avisándole que ya puede recoger.
 //   POST /api/staff?action=croissant      { delta, metodo: 'efectivo'|'tarjeta' }
 const { getPool } = require('./_db');
 const { signStaffToken, getStaffFromRequest, emailPermitido } = require('./_auth');
 const { getClientIp, checkThrottle, registerFail, registerSuccess } = require('./_throttle');
 const { notificarDueño } = require('./_email');
+const { mandarPushAUsuario } = require('./_push');
 
 const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
 const ESTATUS_VALIDOS = ['pendiente', 'en_proceso', 'listo', 'entregado'];
@@ -128,7 +131,14 @@ async function handleData(req, res) {
       }
     }
 
-    res.status(200).json({ weekStart, rows, croissantHoy });
+    // Precio del croissant, para que cocina vea el total a cobrar antes de
+    // confirmar la venta (lo captura Administración en la pestaña Gastos).
+    const settingsRes = await pool.query(
+      `SELECT croissant_price_cents FROM business_settings WHERE id = 1`
+    );
+    const croissantPriceCents = settingsRes.rows[0] ? (settingsRes.rows[0].croissant_price_cents || 0) : 0;
+
+    res.status(200).json({ weekStart, rows, croissantHoy, croissantPriceCents });
   } catch (err) {
     console.error('[staff:data] Error:', err);
     res.status(500).json({ error: 'Error del servidor al cargar los pedidos.' });
@@ -143,13 +153,29 @@ async function handleUpdateStatus(req, res) {
     const { orderId, dia, status } = req.body || {};
     if (!orderId || !dia || !ESTATUS_VALIDOS.includes(status)) { res.status(400).json({ error: 'Datos inválidos.' }); return; }
     const pool = getPool();
-    await pool.query(
+    const updated = await pool.query(
       `UPDATE weekly_orders
        SET day_status = jsonb_set(COALESCE(day_status, '{}'::jsonb), $2, to_jsonb($3::text), true),
            updated_at = now()
-       WHERE id = $1`,
+       WHERE id = $1
+       RETURNING user_id`,
       [orderId, [dia], status]
     );
+
+    // Avisa al cliente con una notificación push cuando cocina marca su
+    // pedido de ese día como "listo" — así no tiene que estar checando la
+    // app. Se manda ANTES de responder (igual que los correos en
+    // mercadopago.js) para que no se pierda si Vercel apaga la función justo
+    // después de responder; si algo falla aquí no afecta el cambio de
+    // estatus, que ya quedó guardado arriba.
+    if (status === 'listo' && updated.rows[0]) {
+      await mandarPushAUsuario(updated.rows[0].user_id, {
+        title: 'ZANO',
+        body: `Tu pedido del ${dia} ya está listo para recoger.`,
+        url: '/#semana'
+      }).catch((err) => { console.error('[staff:update-status] Error mandando notificación push:', err); });
+    }
+
     res.status(200).json({ ok: true });
   } catch (err) {
     console.error('[staff:update-status] Error:', err);
