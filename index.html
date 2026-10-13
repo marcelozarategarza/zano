@@ -324,7 +324,16 @@ const OTROS = [
   { name: 'Jugo de Naranja', desc: 'Naranja recién exprimida', price: '[PRECIO]' },
   { name: 'Vampiro', desc: 'Betabel, naranja y zanahoria', price: '[PRECIO]' },
   { name: 'Toronja', desc: 'Jugo de toronja fresco', price: '[PRECIO]' },
-  { name: 'Waffles Especiales', desc: 'Con tocino, salchicha de res, proteína y plátano', price: '$100.00', protein: 28, carbs: 27, fat: 14, kcal: 345, img: 'images/waffles-especiales.jpg' }
+  { name: 'Waffles Especiales', desc: 'Con tocino, salchicha ahumada, proteína de caramelo y plátano', price: '$100.00', protein: 28, carbs: 27, fat: 14, kcal: 345, img: 'images/waffles-especiales.jpg' },
+  // bundleUnits/bundlePrice/extraUnitPrice: este platillo no se cobra por
+  // unidad simple (unitario × cantidad) como los demás — se vende en un
+  // paquete base (bundleUnits piezas por bundlePrice) y cada pieza extra
+  // arriba de ese paquete se cobra aparte (extraUnitPrice). Los macros
+  // (protein/carbs/fat/kcal/fiber/weight de aquí arriba) son SIEMPRE por
+  // 1 pieza — se multiplican por la cantidad igual que cualquier otro
+  // platillo (ver computeSelectedMacros()); solo el PRECIO usa esta regla
+  // especial (ver computeSelectedPriceLabel()).
+  { name: "Dátiles Reese's", desc: 'Dátil Medjool relleno de crema de cacahuate, cubierto de chocolate amargo — 3 dátiles por $50, agrega más dátiles si quieres (cada uno suma $11)', price: '$50.00', protein: 3, carbs: 22, fat: 6.6, kcal: 159, weight: 42.1, fiber: 2.4, img: 'images/datiles-reeses.jpg', bundleUnits: 3, bundlePrice: 50, extraUnitPrice: 11 }
 ];
 
 // Precios y macros por porción del Poke, tomados directo del costeo (gramos usados × precio/gramo).
@@ -567,14 +576,65 @@ function isPokeSelected() {
   return !!state.selected && state.selected.name === 'Poke';
 }
 
+// Busca el platillo "base" (precio y macros por 1 sola porción, tal cual
+// vive en PLATOS/OTROS) a partir de su nombre. Se usa al reabrir un día ya
+// elegido para editar la cantidad: si en vez de esto usáramos directo lo
+// que quedó guardado en ese día, el precio y los macros ya vendrían
+// multiplicados por la cantidad anterior, y al volver a multiplicar por la
+// cantidad nueva saldría un número doblemente inflado.
+function findMenuTemplate(name) {
+  return PLATOS.find((p) => p.name === name) || OTROS.find((o) => o.name === name) || null;
+}
+
 function computeSelectedPriceLabel() {
   const selected = state.selected;
   if (!selected) return '';
   if (isPokeSelected()) {
     return '$' + (computePokeIngredientTotal() * state.qty).toFixed(2);
   }
+  // Platillos tipo "paquete" (ej. Dátiles Reese's): un precio fijo por las
+  // primeras bundleUnits piezas, y cada pieza extra arriba de eso se cobra
+  // aparte — no es simplemente precio unitario × cantidad.
+  if (selected.bundleUnits) {
+    const extra = Math.max(0, state.qty - selected.bundleUnits);
+    return '$' + (selected.bundlePrice + extra * selected.extraUnitPrice).toFixed(2);
+  }
   const unitNum = parsePriceNum(selected.price);
   return unitNum != null ? ('$' + (unitNum * state.qty).toFixed(2)) : selected.price;
+}
+
+// Macros (proteína, carbos, grasa, fibra, kcal, peso) del platillo
+// seleccionado, YA multiplicados por la cantidad elegida — así, si subes la
+// cantidad, los macros que ves (y los que se guardan al agregar el
+// platillo a un día) suben junto con el precio. Para Poke, parte de los
+// ingredientes que elegiste (computePokeMacros), no de un valor fijo.
+function computeSelectedMacros() {
+  const selected = state.selected;
+  if (!selected) return null;
+  const qty = state.qty || 1;
+  if (isPokeSelected()) {
+    const m = computePokeMacros();
+    const kcalUnit = m.protein * 4 + m.carbs * 4 + m.fat * 9;
+    return {
+      protein: Math.round(m.protein * qty * 10) / 10,
+      carbs: Math.round(m.carbs * qty * 10) / 10,
+      fat: Math.round(m.fat * qty * 10) / 10,
+      fiber: Math.round(m.fiber * qty * 10) / 10,
+      kcal: Math.round(kcalUnit * qty),
+      weight: Math.round(m.weight * qty),
+      hasKcal: true
+    };
+  }
+  const scale1 = (n) => (n == null ? null : Math.round(n * qty * 10) / 10);
+  return {
+    protein: scale1(selected.protein),
+    carbs: scale1(selected.carbs),
+    fat: scale1(selected.fat),
+    fiber: scale1(selected.fiber),
+    kcal: selected.kcal != null ? Math.round(selected.kcal * qty) : null,
+    weight: selected.weight != null ? Math.round(selected.weight * qty) : null,
+    hasKcal: selected.kcal != null
+  };
 }
 
 function computeDiasConPedido() {
@@ -1888,16 +1948,20 @@ function savePerfilInfo() {
 // Acciones
 // ---------------------------------------------------------------------
 function pickDish(item) {
-  setState({ selected: item, qty: 1, ingredients: {}, screen: 'menu' });
+  setState({ selected: item, qty: item.bundleUnits || 1, ingredients: {}, screen: 'menu' });
 }
 
 function pickDay(dia) {
   const item = state.weekOrder[dia];
   if (item) {
+    // Usamos el platillo BASE (precio y macros por 1 sola porción), no lo
+    // que quedó guardado ese día — lo guardado ya viene multiplicado por la
+    // cantidad que se eligió antes. Ver findMenuTemplate().
+    const template = findMenuTemplate(item.name) || item;
     setState({
       screen: 'menu',
-      selected: item,
-      qty: item.savedQty ?? 1,
+      selected: template,
+      qty: item.savedQty ?? (template.bundleUnits || 1),
       ingredients: item.savedIngredients ?? {},
       pickingDay: dia
     });
@@ -1919,9 +1983,19 @@ function toggleIngredient(key) {
 function addAction() {
   if (state.pickingDay) {
     const priceLabel = computeSelectedPriceLabel();
+    const macros = computeSelectedMacros();
+    // Guardamos el platillo con el precio Y los macros YA multiplicados por
+    // la cantidad elegida — así "Mi semana", el total a pagar y lo que ve
+    // cocina siempre reflejan la cantidad real que se pidió ese día.
     const item = state.selected ? {
       ...state.selected,
       price: priceLabel,
+      protein: macros ? macros.protein : state.selected.protein,
+      carbs: macros ? macros.carbs : state.selected.carbs,
+      fat: macros ? macros.fat : state.selected.fat,
+      fiber: macros ? macros.fiber : state.selected.fiber,
+      kcal: macros ? macros.kcal : state.selected.kcal,
+      weight: macros ? macros.weight : state.selected.weight,
       savedQty: state.qty,
       savedIngredients: isPokeSelected() ? { ...state.ingredients } : null
     } : state.selected;
@@ -2858,15 +2932,16 @@ function renderMenuList() {
 function renderMenuDetail() {
   const selected = state.selected;
   const isPoke = isPokeSelected();
-  const pokeMacros = isPoke ? computePokeMacros() : null;
-  const kcal = isPoke ? Math.round(pokeMacros.protein * 4 + pokeMacros.carbs * 4 + pokeMacros.fat * 9) : selected.kcal;
-  const hasKcal = isPoke ? true : selected.kcal != null;
-  const weight = isPoke ? Math.round(pokeMacros.weight) : selected.weight;
-  const proteinVal = isPoke ? (Math.round(pokeMacros.protein * 10) / 10) : selected.protein;
-  const carbsVal = isPoke ? (Math.round(pokeMacros.carbs * 10) / 10) : selected.carbs;
-  const fatVal = isPoke ? (Math.round(pokeMacros.fat * 10) / 10) : selected.fat;
-  const fiberVal = isPoke ? (Math.round(pokeMacros.fiber * 10) / 10) : selected.fiber;
+  const macros = computeSelectedMacros();
+  const kcal = macros.kcal;
+  const hasKcal = macros.hasKcal;
+  const weight = macros.weight;
+  const proteinVal = macros.protein;
+  const carbsVal = macros.carbs;
+  const fatVal = macros.fat;
+  const fiberVal = macros.fiber;
   const priceLabel = computeSelectedPriceLabel();
+  const qtyMin = selected.bundleUnits || 1;
   const addLabel = state.pickingDay === 'ALL' ? 'Agregar a toda la semana' : state.pickingDay ? ('Agregar a ' + state.pickingDay) : 'Ir a Mi semana';
 
   return `
@@ -2910,13 +2985,14 @@ function renderMenuDetail() {
         <div class="macro-tile"><div class="val">${fatVal != null ? fatVal + 'g' : '[ ]g'}</div><div class="lbl">Grasas</div></div>
         <div class="macro-tile"><div class="val">${fiberVal != null ? fiberVal + 'g' : '[ ]g'}</div><div class="lbl">Fibra</div></div>
       </div>
+      ${state.qty > 1 ? `<span style="font-size:11px;color:#9AA096;margin-top:-10px;">Macros para la cantidad de ${state.qty} que elegiste.</span>` : ''}
 
       <div style="height:1px;background:#E7E2D6;"></div>
 
       <div class="row">
         <span style="font-size:14px;font-weight:600;color:#1F2420;">Cantidad</span>
         <div style="display:flex;align-items:center;gap:16px;">
-          <button onclick="setState({qty: Math.max(1, state.qty - 1)})" style="width:36px;height:36px;border-radius:999px;background:#F0ECE0;display:flex;align-items:center;justify-content:center;">${icon('minus', { w: 16, h: 16, stroke: '#1F2420', sw: 2 })}</button>
+          <button onclick="setState({qty: Math.max(${qtyMin}, state.qty - 1)})" style="width:36px;height:36px;border-radius:999px;background:#F0ECE0;display:flex;align-items:center;justify-content:center;">${icon('minus', { w: 16, h: 16, stroke: '#1F2420', sw: 2 })}</button>
           <span style="font-size:16px;font-weight:700;min-width:18px;text-align:center;">${state.qty}</span>
           <button onclick="setState({qty: state.qty + 1})" style="width:36px;height:36px;border-radius:999px;background:#F0ECE0;display:flex;align-items:center;justify-content:center;">${icon('plus', { w: 16, h: 16, stroke: '#1F2420', sw: 2 })}</button>
         </div>
