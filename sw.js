@@ -272,7 +272,19 @@
 // puntual solo a esa persona. Si no se elige nadie, se manda a todos como
 // antes. Si el cliente elegido no tiene notificaciones activadas en ningún
 // dispositivo, se avisa en vez de decir "Enviada" sin que le haya llegado.
-const CACHE_NAME = 'zano-shell-v64';
+
+// v65: nuevo — en la pantalla de "Iniciar sesión" hay una casilla "Recordar
+// mi correo en este dispositivo" (marcada por default). Si se deja
+// marcada, la próxima vez que se abra esa pantalla en este mismo teléfono
+// (incluso después de cerrar sesión) el correo ya aparece escrito, solo
+// falta la contraseña. Nunca se guarda la contraseña, solo el correo.
+
+// v66: nuevo — en Administración > Clientes, cada cliente tiene un botón
+// "Eliminar cuenta". Pide escribir un correo (ya trae uno de ejemplo) y
+// confirmar una vez más; al confirmar, primero se le manda ese correo al
+// cliente y luego se borra su cuenta por completo (junto con su historial
+// de pedidos y sus notificaciones activadas) — no se puede deshacer.
+const CACHE_NAME = 'zano-shell-v66';
 const APP_SHELL = [
   './',
   './index.html',
