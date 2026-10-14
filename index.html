@@ -438,6 +438,7 @@ let state = {
   authEmail: '',
   authPassword: '',
   authError: '',
+  recordarCorreo: true,     // casilla "Recordar mi correo en este dispositivo" (ver renderAuth/submitAuth)
   user: null,               // { name, email } una vez con sesión iniciada
   authToken: '',            // token del backend (vacío = modo local sin backend)
   plantel: null,
@@ -541,6 +542,16 @@ let state = {
   adminNotifSent: false,
   adminNotifSentCount: 0,
   adminNotifError: '',
+
+  // Eliminar la cuenta de un cliente (pestaña Clientes) — adminEliminarId
+  // es el cliente cuyo panel está abierto; se manda SIEMPRE un correo
+  // (que tú escribes) antes de borrar — ver api/admin-costs.js,
+  // tipo='eliminarCliente'.
+  adminEliminarId: null,
+  adminEliminarConfirmOpen: false,
+  adminEliminarLoading: false,
+  adminEliminarError: '',
+  adminEliminarAviso: '',
 
   // Panel de cocina/trabajadores (ver /#staff) — contraseña propia
   // (STAFF_PASSWORD), separada de la de administrador: el personal ve y
@@ -821,6 +832,23 @@ const SESSION_KEY = 'zano_session_v1';
 const OFFLINE_CACHE_KEY = 'zano_offline_cache_v1';
 const ADMIN_SESSION_KEY = 'zano_admin_session_v1';
 const STAFF_SESSION_KEY = 'zano_staff_session_v1';
+const REMEMBERED_EMAIL_KEY = 'zano_correo_recordado_v1';
+
+// Solo el CORREO (nunca la contraseña) para que, al volver a la pantalla de
+// "Iniciar sesión" en este mismo teléfono, ya aparezca escrito — ver la
+// casilla "Recordar mi correo en este dispositivo" en renderAuth() y
+// submitAuth(). Totalmente separado de la sesión de arriba (saveSession):
+// esto se queda guardado aunque la persona cierre sesión, justo para la
+// próxima vez que tenga que volver a entrar.
+function saveRememberedEmail(email) {
+  try { localStorage.setItem(REMEMBERED_EMAIL_KEY, email); } catch (e) { /* localStorage no disponible */ }
+}
+function clearRememberedEmail() {
+  try { localStorage.removeItem(REMEMBERED_EMAIL_KEY); } catch (e) { /* localStorage no disponible */ }
+}
+function loadRememberedEmail() {
+  try { return localStorage.getItem(REMEMBERED_EMAIL_KEY) || ''; } catch (e) { return ''; }
+}
 
 // Sesión de administrador y de cocina: se guardan aparte de la del cliente
 // para que, al volver a abrir la app en ese mismo dispositivo, regrese
@@ -1076,9 +1104,11 @@ async function submitAuth() {
   const nameInput = document.getElementById('auth-name');
   const emailInput = document.getElementById('auth-email');
   const passwordInput = document.getElementById('auth-password');
+  const recordarInput = document.getElementById('auth-recordar-correo');
   const name = nameInput ? nameInput.value.trim() : '';
   const email = (emailInput ? emailInput.value.trim() : '').toLowerCase();
   const password = passwordInput ? passwordInput.value : '';
+  const recordarCorreo = recordarInput ? recordarInput.checked : state.recordarCorreo;
 
   if (state.authMode === 'signup') {
     if (!name || !email || !password) {
@@ -1132,6 +1162,13 @@ async function submitAuth() {
       setState({ authError: 'Completa correo y contraseña.', authEmail: email, authPassword: password });
       return;
     }
+
+    // Recordar (o dejar de recordar) el correo en este teléfono para la
+    // próxima vez — ver la casilla en renderAuth(). Se guarda ANTES de
+    // intentar entrar (no solo si sale bien) porque es un dato que la
+    // persona ya escribió y quiere que se quede, sin depender de que el
+    // inicio de sesión en sí haya funcionado.
+    if (recordarCorreo) saveRememberedEmail(email); else clearRememberedEmail();
 
     let manejadoPorBackend = false;
     try {
@@ -1691,6 +1728,67 @@ function reiniciarNotifMasiva() {
 }
 
 // ---------------------------------------------------------------------
+// Eliminar la cuenta de un cliente (Administración > Clientes). Siempre se
+// manda un correo (que escribe Administración) antes de borrar — no se
+// puede eliminar sin escribir algo, para que el cliente nunca se quede sin
+// saber por qué desapareció su cuenta.
+// ---------------------------------------------------------------------
+function toggleEliminarCliente(id) {
+  const yaAbierto = state.adminEliminarId === id;
+  setState({
+    adminEliminarId: yaAbierto ? null : id,
+    adminEliminarConfirmOpen: false,
+    adminEliminarError: '',
+    adminEliminarAviso: ''
+  });
+}
+
+function pedirConfirmacionEliminarCliente() {
+  const mensajeInput = document.getElementById('admin-eliminar-mensaje');
+  const texto = mensajeInput ? mensajeInput.value.trim() : '';
+  if (!texto) {
+    setState({ adminEliminarError: 'Escribe el mensaje del correo antes de eliminar la cuenta.' });
+    return;
+  }
+  setState({ adminEliminarConfirmOpen: true, adminEliminarError: '' });
+}
+
+async function confirmarEliminarCliente() {
+  const asuntoInput = document.getElementById('admin-eliminar-asunto');
+  const mensajeInput = document.getElementById('admin-eliminar-mensaje');
+  const texto = mensajeInput ? mensajeInput.value.trim() : '';
+  const userId = state.adminEliminarId;
+  if (!userId || !texto) {
+    setState({ adminEliminarError: 'Escribe el mensaje del correo antes de eliminar la cuenta.', adminEliminarConfirmOpen: false });
+    return;
+  }
+  const customer = (state.adminData && state.adminData.customers || []).find((c) => c.id === userId);
+  setState({ adminEliminarLoading: true, adminEliminarError: '', adminEliminarConfirmOpen: false });
+  try {
+    const r = await apiFetch('/api/admin-costs', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + state.adminToken },
+      body: {
+        tipo: 'eliminarCliente',
+        userId,
+        asunto: asuntoInput ? asuntoInput.value.trim() : '',
+        mensaje: texto
+      }
+    });
+    if (r.ok && r.data && r.data.ok) {
+      const aviso = 'Cuenta de ' + (customer ? customer.name : 'ese cliente') + ' eliminada'
+        + (r.data.correoEnviado ? ' — se le mandó el correo.' : ' — la cuenta se borró, pero el correo no se pudo mandar (revisa EmailJS).');
+      setState({ adminEliminarLoading: false, adminEliminarId: null, adminEliminarAviso: aviso });
+      loadAdminData();
+    } else {
+      setState({ adminEliminarLoading: false, adminEliminarError: (r.data && r.data.error) || 'No se pudo eliminar la cuenta. Intenta de nuevo.' });
+    }
+  } catch (e) {
+    setState({ adminEliminarLoading: false, adminEliminarError: 'No hay conexión con el servidor.' });
+  }
+}
+
+// ---------------------------------------------------------------------
 // Panel de cocina/trabajadores (ver /#staff) — pedidos de esta semana con
 // su estatus de preparación, y el conteo de croissants vendidos hoy sin
 // pedido previo. Nunca muestra ventas, ganancias ni datos financieros.
@@ -1881,11 +1979,15 @@ function confirmarPagoMercadoPago(paymentId, weekStart) {
 }
 
 function logout() {
+  // Si había marcado "Recordar mi correo en este dispositivo", al cerrar
+  // sesión le dejamos el correo ya escrito en la pantalla de volver a
+  // entrar (en vez de vacío) — ver REMEMBERED_EMAIL_KEY más arriba.
+  const correoRecordado = loadRememberedEmail();
   setState({
     screen: 'auth',
     authMode: 'login',
     authName: '',
-    authEmail: '',
+    authEmail: correoRecordado,
     authPassword: '',
     authError: '',
     user: null,
@@ -2351,6 +2453,10 @@ function renderAuth() {
           </div>
         </div>
         ${!isSignup ? `
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input id="auth-recordar-correo" type="checkbox" ${state.recordarCorreo ? 'checked' : ''} onchange="setState({recordarCorreo:this.checked})" style="width:17px;height:17px;flex-shrink:0;accent-color:var(--green);">
+          <span style="font-size:12.5px;color:var(--muted);">Recordar mi correo en este dispositivo</span>
+        </label>
         <button onclick="setState({screen:'forgot', forgotError:'', forgotEmail: state.authEmail})" style="align-self:flex-end;font-size:12.5px;font-weight:600;color:var(--green);">¿Olvidaste tu contraseña?</button>` : ''}
       </div>
 
@@ -2798,21 +2904,54 @@ function renderAdminResumen(data) {
 
 function renderAdminClientes(data) {
   const customers = data.customers || [];
+  const avisoHtml = state.adminEliminarAviso ? `
+    <div style="display:flex;gap:8px;align-items:flex-start;background:var(--green-tint);border-radius:12px;padding:12px 14px;">
+      ${icon('check', { w: 16, h: 16, stroke: 'var(--green)', sw: 2.2 })}
+      <span style="font-size:12.5px;line-height:1.4;color:var(--green);">${esc(state.adminEliminarAviso)}</span>
+    </div>` : '';
+
   if (customers.length === 0) {
-    return `<p style="margin:0;font-size:12.5px;color:var(--muted2);text-align:center;padding:24px 0;">Todavía no hay clientes registrados.</p>`;
+    return avisoHtml + `<p style="margin:0;font-size:12.5px;color:var(--muted2);text-align:center;padding:24px 0;">Todavía no hay clientes registrados.</p>`;
   }
   return `
-    <div class="card" style="padding:2px 14px;">
-      ${customers.map((c) => `
-        <div class="admin-table-row" style="align-items:flex-start;flex-direction:column;gap:3px;padding:12px 0;">
-          <div style="display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;">
-            <span style="font-size:13.5px;font-weight:700;color:var(--text);">${esc(c.name)}</span>
-            <span style="font-size:10.5px;color:var(--muted2);flex-shrink:0;">desde ${esc(c.createdAt)}</span>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      ${avisoHtml}
+      <div class="card" style="padding:2px 14px;">
+        ${customers.map((c) => {
+          const abierto = state.adminEliminarId === c.id;
+          const mensajeDefault = 'Hola ' + c.name + ', tu cuenta en ZANO fue eliminada. Si tienes dudas, contáctanos a zano.ayuda@gmail.com.';
+          return `
+          <div class="admin-table-row" style="align-items:flex-start;flex-direction:column;gap:3px;padding:12px 0;">
+            <div style="display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;">
+              <span style="font-size:13.5px;font-weight:700;color:var(--text);">${esc(c.name)}</span>
+              <span style="font-size:10.5px;color:var(--muted2);flex-shrink:0;">desde ${esc(c.createdAt)}</span>
+            </div>
+            <span style="font-size:12px;color:var(--muted);">${esc(c.email)}${c.phone ? ' · ' + esc(c.phone) : ''}</span>
+            ${c.plantel ? `<span style="font-size:11.5px;color:var(--green);font-weight:600;">${esc(c.plantel)}</span>` : ''}
+            <button onclick="toggleEliminarCliente(${c.id})" style="font-size:11.5px;font-weight:700;color:var(--danger);margin-top:4px;">${abierto ? 'Cancelar' : 'Eliminar cuenta'}</button>
+            ${abierto ? `
+            <div style="width:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;background:var(--danger-tint);border:1px solid var(--danger-border);border-radius:10px;padding:12px;margin-top:4px;">
+              <span style="font-size:11.5px;line-height:1.4;color:var(--danger);">Esto borra la cuenta de ${esc(c.name)} para siempre, junto con todo su historial de pedidos — no se puede deshacer. Antes de borrarla, se le manda el correo que escribas abajo.</span>
+              <input id="admin-eliminar-asunto" type="text" maxlength="60" placeholder="Asunto (opcional — por defecto 'Tu cuenta en ZANO fue eliminada')">
+              <textarea id="admin-eliminar-mensaje">${esc(mensajeDefault)}</textarea>
+              ${state.adminEliminarError ? `<span style="font-size:11.5px;color:var(--danger);">${esc(state.adminEliminarError)}</span>` : ''}
+              ${state.adminEliminarConfirmOpen ? `
+              <div style="display:flex;flex-direction:column;gap:8px;background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:10px;padding:10px;">
+                <span style="font-size:11.5px;line-height:1.4;color:var(--amber-text);">¿Seguro? Se le manda el correo y la cuenta de ${esc(c.name)} se borra de inmediato — no se puede deshacer.</span>
+                <div style="display:flex;gap:8px;">
+                  <button onclick="confirmarEliminarCliente()" ${state.adminEliminarLoading ? 'disabled' : ''} style="flex:1;padding:10px;border-radius:10px;font-size:12.5px;font-weight:700;background:var(--danger);color:#fff;">${state.adminEliminarLoading ? 'Eliminando…' : 'Sí, eliminar cuenta'}</button>
+                  <button onclick="setState({adminEliminarConfirmOpen:false})" style="flex:1;padding:10px;border-radius:10px;font-size:12.5px;font-weight:700;background:var(--chip);color:var(--text);">Cancelar</button>
+                </div>
+              </div>
+              ` : `
+              <button onclick="pedirConfirmacionEliminarCliente()" style="width:100%;box-sizing:border-box;padding:12px;border-radius:12px;font-size:13px;font-weight:700;background:var(--danger);color:#fff;">Eliminar cuenta y mandar correo</button>
+              `}
+            </div>
+            ` : ''}
           </div>
-          <span style="font-size:12px;color:var(--muted);">${esc(c.email)}${c.phone ? ' · ' + esc(c.phone) : ''}</span>
-          ${c.plantel ? `<span style="font-size:11.5px;color:var(--green);font-weight:600;">${esc(c.plantel)}</span>` : ''}
-        </div>
-      `).join('')}
+        `;
+        }).join('')}
+      </div>
     </div>
   `;
 }
@@ -4025,6 +4164,15 @@ if (savedSession && savedSession.user) {
     authToken: savedSession.authToken || '',
     plantel: savedSession.plantel || null
   };
+} else {
+  // Sin sesión activa (nunca entró en este teléfono, o cerró sesión) — si
+  // antes marcó "Recordar mi correo en este dispositivo", ya le dejamos
+  // escrito el correo en la pantalla de "Iniciar sesión" para que no tenga
+  // que volver a escribirlo.
+  const correoRecordado = loadRememberedEmail();
+  if (correoRecordado) {
+    state = { ...state, authEmail: correoRecordado, recordarCorreo: true };
+  }
 }
 
 if (!navigator.onLine) {
