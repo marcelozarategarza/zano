@@ -226,6 +226,12 @@ Mientras no agregues `VAPID_PRIVATE_KEY`, la app sigue funcionando normal — el
 
 En Administración → Gastos, hasta abajo del todo hay una tarjeta "Aviso a clientes". Ahí eliges, en el selector, si es para **todos los clientes** o para **uno solo** (aparecen todos por nombre y correo, igual que en la pestaña Clientes) — útil, por ejemplo, para avisarle algo puntual solo a esa persona en vez de a todos. Escribes un título (opcional) y el mensaje, tocas "Enviar", confirmas una vez más (no se puede deshacer) y le llega esa misma notificación, de inmediato, a quien elegiste (o a todos) — solo a quien ya tenga notificaciones activadas en su teléfono, a nadie más. Si el cliente elegido todavía no las ha activado, te avisa que no le llegó a nadie en vez de decir "Enviada" sin que sea cierto. No hace falta configurar nada aparte de lo de arriba (`VAPID_PRIVATE_KEY`).
 
+## Eliminar la cuenta de un cliente
+
+En Administración → Clientes, cada cliente tiene un botón **"Eliminar cuenta"**. Al tocarlo se abre un recuadro con un asunto (opcional) y un mensaje — ya trae un texto escrito de ejemplo, lo puedes dejar igual o cambiarlo por lo que quieras decirle. Tocas "Eliminar cuenta y mandar correo", confirmas una vez más, y entonces: primero se le manda ese correo al cliente, y después se borra su cuenta por completo — su historial de pedidos y sus notificaciones activadas se borran junto con ella. **No se puede deshacer.**
+
+No se puede eliminar una cuenta sin escribir el mensaje del correo — es a propósito, para que ningún cliente se quede sin saber por qué desapareció su cuenta. Si el correo no se llega a mandar por algún motivo (por ejemplo, se acabó la cuota mensual de EmailJS), la cuenta se borra igual y te avisa que el correo no salió, para que lo puedas avisar tú por otro medio. Usa el mismo EmailJS que ya tienes configurado para los demás correos a clientes — no hace falta configurar nada nuevo.
+
 ## Qué falta / qué revisar
 
 - Los 7 platillos de "Bebidas, Snacks y Cheat Meals" (Yogurt Griego, Bowl de Frutas, Postres y Snacks, Jugo Verde, Jugo de Naranja, Vampiro, Toronja) siguen con precio `[PRECIO]` — en cuanto me mandes su costeo los lleno.
