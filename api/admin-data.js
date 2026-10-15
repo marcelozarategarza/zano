@@ -1,37 +1,39 @@
 // Junta todo lo que el panel de administración necesita en una sola
-// llamada: clientes, pedidos pagados (agrupados por semana, con calendario
-// de entregas y conteo de platillos) y los gastos de cada semana. Solo se
+// llamada: clientes, pedidos pagados por semana (con calendario de
+// entregas, conteo de platillos y quién pidió cada uno), y el costeo por
+// platillo (editable desde Administración > Gastos operativos). Solo se
 // puede leer con el token de admin (ver admin-login.js).
 //
-// Los gastos por platillo (Ingredientes, Sueldo del jefe, Sueldo de los
-// cocineros, Comisión al instituto, Pago de inversión) YA NO se escriben a
-// mano: se calculan aquí solos, platillo por platillo, a partir de lo que
-// cada cliente pagó por su platillo esa semana. La regla (explicada por el
-// dueño): de cada platillo vendido, $70 pesos se reparten siempre igual —
-// $20 sueldo del jefe, $20 sueldo de los dos cocineros, $10 comisión al
-// instituto y $20 pago de inversión — y el resto del precio del platillo
-// (precio − $70) es el costo real de ingredientes (empaque ya va incluido
-// ahí). Solo "Otros gastos" (transporte, gas, etc.) sigue siendo un campo
-// que el dueño captura a mano, porque no depende de qué platillo se vendió.
+// Los 6 números de costo de cada platillo (MdO, costo de entrega, comisión,
+// ingreso, materia prima, total sin IVA) YA NO se calculan solos con una
+// regla fija — cada platillo tiene su propio costeo, capturado a mano por
+// el dueño y guardado en la tabla platillo_costos (ver schema.sql y
+// api/admin-costs.js, tipo='platilloCosto'). Aquí solo se multiplican esos
+// 6 números por la cantidad de pedidos de cada platillo, semana por semana.
 const { getPool } = require('./_db');
 const { getAdminFromRequest } = require('./_auth');
 
 const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
 
-// Reparto fijo de los $70 por cada platillo vendido (en centavos).
-const SUELDO_JEFE_CENTS = 2000;
-const SUELDO_COCINEROS_CENTS = 2000;
-const COMISION_INSTITUTO_CENTS = 1000;
-const PAGO_INVERSION_CENTS = 2000;
-const TOTAL_REPARTO_CENTS = SUELDO_JEFE_CENTS + SUELDO_COCINEROS_CENTS + COMISION_INSTITUTO_CENTS + PAGO_INVERSION_CENTS; // 7000
-
-// Convierte un precio guardado como texto (ej. "$150.00", "Gratis") a
-// centavos. Si no se puede leer un número, regresa 0 (por ejemplo, "Gratis"
-// o un precio que todavía no se ha definido).
-function precioACentavos(str) {
-  if (!str) return 0;
-  const n = parseFloat(String(str).replace(/[^0-9.]/g, ''));
-  return Number.isFinite(n) ? Math.round(n * 100) : 0;
+// El Poke se guarda siempre con el mismo nombre ("Poke") en el pedido, sin
+// importar qué proteína se eligió (ver index.html, isPokeSelected) — la
+// proteína elegida vive aparte, en item.savedIngredients. Pero cuesta
+// distinto según la proteína (atún/salmón/camarón), así que para el costeo
+// y para "Pedidos de la semana" lo separamos en 3 nombres distintos.
+// "Pasta Alfredo con Pollo" y "Yogurt Griego" también se renombran aquí
+// nada más para que coincidan con los nombres del costeo que capturó el
+// dueño en Administración > Gastos operativos.
+function nombreCosteo(itemName, savedIngredients) {
+  if (itemName === 'Poke') {
+    const ing = savedIngredients || {};
+    if (ing.atun) return 'Poke Atún';
+    if (ing.salmon) return 'Poke Salmón';
+    if (ing.camaron) return 'Poke Camarón';
+    return 'Poke';
+  }
+  if (itemName === 'Pasta Alfredo con Pollo') return 'Pasta Alfredo';
+  if (itemName === 'Yogurt Griego') return 'Yogurt con Granola';
+  return itemName;
 }
 
 module.exports = async function handler(req, res) {
@@ -55,7 +57,7 @@ module.exports = async function handler(req, res) {
     // Solo pedidos ya PAGADOS (eso es venta real) de los últimos ~6 meses,
     // para no traer un historial infinito cada vez que abres el panel.
     const ordersRes = await pool.query(
-      `SELECT w.week_start::text AS week_start, w.items, w.horarios, w.plantel, w.total_cents,
+      `SELECT w.week_start::text AS week_start, w.items, w.horarios, w.plantel,
               u.name AS user_name, u.plantel AS user_plantel
        FROM weekly_orders w
        JOIN users u ON u.id = w.user_id
@@ -63,60 +65,33 @@ module.exports = async function handler(req, res) {
        ORDER BY w.week_start DESC`
     );
 
-    // De weekly_costs solo usamos "Otros gastos" y las notas — lo demás ya
-    // se calcula solo (ver arriba). Las columnas viejas (ingredientes_cents,
-    // etc.) se dejan sin usar, no hace falta borrarlas.
-    const costsRes = await pool.query(
-      `SELECT week_start::text AS week_start, otros_gastos_cents, notas
-       FROM weekly_costs ORDER BY week_start DESC`
+    const costosRes = await pool.query(
+      `SELECT platillo, mdo_cents, entrega_cents, comision_cents, ingreso_cents, materia_prima_cents, total_cents
+       FROM platillo_costos ORDER BY id`
     );
+    const costosMap = new Map(costosRes.rows.map((c) => [c.platillo, c]));
 
-    // Valor de referencia fijo para Ganancia neta, y precio del croissant
-    // (una sola fila, id=1). Si por lo que sea la fila no existe todavía
-    // (por ejemplo, si aún no has vuelto a correr schema.sql), se trata como
-    // $0 en vez de tronar.
+    // Precio del croissant (venta presencial, sin pedido previo, que llega
+    // de Cocina) — se sigue editando desde aquí (Gastos operativos) porque
+    // el panel de Cocina lo necesita para mostrar el total a cobrar.
     const settingsRes = await pool.query(
-      `SELECT meta_recuperacion_cents, croissant_price_cents FROM business_settings WHERE id = 1`
+      `SELECT croissant_price_cents FROM business_settings WHERE id = 1`
     );
-
-    // Ventas de croissants (los únicos que se venden en el momento, sin
-    // pedido previo — ver croissant_sales en schema.sql), agrupadas por
-    // semana Y por cómo se cobraron. Se muestran APARTE de las ventas de
-    // platillos con pedido previo, no se suman a Ganancia bruta/neta.
-    // date_trunc('week', ...) en Postgres regresa el lunes de esa semana,
-    // igual que weekStart en todo lo demás de este archivo.
-    const croissantsRes = await pool.query(
-      `SELECT date_trunc('week', day)::date::text AS week_start, payment_method, SUM(quantity)::int AS qty
-       FROM croissant_sales
-       WHERE day >= (CURRENT_DATE - INTERVAL '182 days')
-       GROUP BY 1, 2
-       ORDER BY 1 DESC`
-    );
+    const croissantPriceCents = settingsRes.rows[0] ? (settingsRes.rows[0].croissant_price_cents || 0) : 0;
 
     const weeksMap = new Map();
-    const dishCountsAllTime = {};
 
     for (const o of ordersRes.rows) {
       const wk = o.week_start;
       if (!weeksMap.has(wk)) {
         weeksMap.set(wk, {
           weekStart: wk,
-          ventasCents: 0,
-          pedidosPagados: 0,
           dishCounts: {},
-          calendario: { Lunes: [], Martes: [], Miércoles: [], Jueves: [], Viernes: [] },
-          // Desglose automático de gastos por platillo vendido (ver arriba).
-          platillosContados: 0,
-          ingredientesAutoCents: 0,
-          sueldoJefeCents: 0,
-          sueldoCocinerosCents: 0,
-          comisionInstitutoCents: 0,
-          pagoInversionCents: 0
+          dishClients: {},
+          calendario: { Lunes: [], Martes: [], Miércoles: [], Jueves: [], Viernes: [] }
         });
       }
       const w = weeksMap.get(wk);
-      w.ventasCents += o.total_cents || 0;
-      w.pedidosPagados += 1;
 
       const items = o.items || {};
       const horarios = o.horarios || {};
@@ -125,62 +100,59 @@ module.exports = async function handler(req, res) {
       for (const dia of DIAS) {
         const item = items[dia];
         if (!item || !item.name) continue;
-        w.dishCounts[item.name] = (w.dishCounts[item.name] || 0) + 1;
-        dishCountsAllTime[item.name] = (dishCountsAllTime[item.name] || 0) + 1;
+
+        const nombre = nombreCosteo(item.name, item.savedIngredients);
+        w.dishCounts[nombre] = (w.dishCounts[nombre] || 0) + 1;
+        if (!w.dishClients[nombre]) w.dishClients[nombre] = [];
+        w.dishClients[nombre].push({
+          nombre: o.user_name,
+          dia,
+          plantel,
+          horario: horarios[dia] || null
+        });
+
         w.calendario[dia].push({
           nombre: o.user_name,
           plantel: plantel,
           horario: horarios[dia] || null,
           platillo: item.name
         });
-
-        const precioCents = precioACentavos(item.price);
-        if (precioCents > 0) {
-          w.platillosContados += 1;
-          w.ingredientesAutoCents += Math.max(0, precioCents - TOTAL_REPARTO_CENTS);
-          w.sueldoJefeCents += SUELDO_JEFE_CENTS;
-          w.sueldoCocinerosCents += SUELDO_COCINEROS_CENTS;
-          w.comisionInstitutoCents += COMISION_INSTITUTO_CENTS;
-          w.pagoInversionCents += PAGO_INVERSION_CENTS;
-        }
       }
+    }
+
+    // Con el conteo de pedidos por platillo de cada semana, armamos el
+    // desglose de costos (Gastos operativos) multiplicando los 6 números
+    // del costeo de ese platillo por cuántas veces se pidió esa semana.
+    for (const w of weeksMap.values()) {
+      const dishCosts = {};
+      const totales = { mdoCents: 0, entregaCents: 0, comisionCents: 0, ingresoCents: 0, materiaPrimaCents: 0, totalCents: 0 };
+      let pedidosTotal = 0;
+      for (const [nombre, count] of Object.entries(w.dishCounts)) {
+        const c = costosMap.get(nombre) || {};
+        const fila = {
+          count,
+          mdoCents: (c.mdo_cents || 0) * count,
+          entregaCents: (c.entrega_cents || 0) * count,
+          comisionCents: (c.comision_cents || 0) * count,
+          ingresoCents: (c.ingreso_cents || 0) * count,
+          materiaPrimaCents: (c.materia_prima_cents || 0) * count,
+          totalCents: (c.total_cents || 0) * count
+        };
+        dishCosts[nombre] = fila;
+        totales.mdoCents += fila.mdoCents;
+        totales.entregaCents += fila.entregaCents;
+        totales.comisionCents += fila.comisionCents;
+        totales.ingresoCents += fila.ingresoCents;
+        totales.materiaPrimaCents += fila.materiaPrimaCents;
+        totales.totalCents += fila.totalCents;
+        pedidosTotal += count;
+      }
+      w.dishCosts = dishCosts;
+      w.opTotales = totales;
+      w.pedidosTotal = pedidosTotal;
     }
 
     const weeks = Array.from(weeksMap.values()).sort((a, b) => b.weekStart.localeCompare(a.weekStart));
-    const topDishesAllTime = Object.entries(dishCountsAllTime)
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count);
-
-    const costs = costsRes.rows.map((c) => ({
-      weekStart: c.week_start,
-      otrosGastosCents: c.otros_gastos_cents || 0,
-      notas: c.notas || ''
-    }));
-
-    const metaRecuperacionCents = settingsRes.rows[0] ? (settingsRes.rows[0].meta_recuperacion_cents || 0) : 0;
-    const croissantPriceCents = settingsRes.rows[0] ? (settingsRes.rows[0].croissant_price_cents || 0) : 0;
-
-    const croissantsMap = new Map();
-    for (const c of croissantsRes.rows) {
-      const wk = c.week_start;
-      if (!croissantsMap.has(wk)) {
-        croissantsMap.set(wk, { weekStart: wk, efectivoQty: 0, tarjetaQty: 0 });
-      }
-      const cw = croissantsMap.get(wk);
-      if (c.payment_method === 'efectivo') cw.efectivoQty += c.qty || 0;
-      else if (c.payment_method === 'tarjeta') cw.tarjetaQty += c.qty || 0;
-    }
-    const croissants = Array.from(croissantsMap.values())
-      .sort((a, b) => b.weekStart.localeCompare(a.weekStart))
-      .map((cw) => ({
-        weekStart: cw.weekStart,
-        efectivoQty: cw.efectivoQty,
-        tarjetaQty: cw.tarjetaQty,
-        totalQty: cw.efectivoQty + cw.tarjetaQty,
-        efectivoCents: cw.efectivoQty * croissantPriceCents,
-        tarjetaCents: cw.tarjetaQty * croissantPriceCents,
-        totalCents: (cw.efectivoQty + cw.tarjetaQty) * croissantPriceCents
-      }));
 
     res.status(200).json({
       customers: customersRes.rows.map((u) => ({
@@ -192,11 +164,16 @@ module.exports = async function handler(req, res) {
         createdAt: u.created_at
       })),
       weeks,
-      topDishesAllTime,
-      costs,
-      metaRecuperacionCents,
-      croissantPriceCents,
-      croissants
+      platilloCostos: costosRes.rows.map((c) => ({
+        platillo: c.platillo,
+        mdoCents: c.mdo_cents,
+        entregaCents: c.entrega_cents,
+        comisionCents: c.comision_cents,
+        ingresoCents: c.ingreso_cents,
+        materiaPrimaCents: c.materia_prima_cents,
+        totalCents: c.total_cents
+      })),
+      croissantPriceCents
     });
   } catch (err) {
     console.error('[admin-data] Error:', err);
