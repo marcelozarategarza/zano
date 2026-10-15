@@ -298,7 +298,16 @@
 // pestaña). "Precio del croissant" se movió de Gastos a Gastos operativos
 // (lo sigue usando Cocina). Hace falta correr de nuevo schema.sql completo
 // (crea la tabla platillo_costos) — ver README.
-const CACHE_NAME = 'zano-shell-v67';
+
+// v68: en Gastos operativos, "Por platillo" ahora se ve compacto con
+// barritas en vez de la cuadrícula de números: arriba el total de ventas
+// del platillo (con el conteo de pedidos), y abajo 5 barritas que reparten
+// esa ganancia bruta — MdO, Comisión, Staff, Reinversión y Jefe. "Staff" y
+// "Reinversión" son los mismos campos "Materia prima" y "Costo de entrega"
+// de siempre, solo con otra etiqueta aquí; "Jefe" es "Ingreso". El editor
+// de costeo, hasta abajo de la pestaña, sigue mostrando los 6 nombres
+// originales (ahí es donde de verdad se edita cada número).
+const CACHE_NAME = 'zano-shell-v68';
 const APP_SHELL = [
   './',
   './index.html',
