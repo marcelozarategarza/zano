@@ -1,24 +1,17 @@
-// Guarda (o actualiza) "Otros gastos" y las notas de una semana. Los demás
-// gastos (Ingredientes, Sueldo del jefe, Sueldo de los cocineros, Comisión
-// al instituto, Pago de inversión) ya NO se capturan aquí — se calculan
-// solos en api/admin-data.js a partir de los platillos vendidos esa semana.
-// Solo con token de admin.
-//
-// También guarda aquí el "valor de referencia" para Ganancia neta (un solo
-// valor fijo, no por semana) — se metió en este mismo archivo, en vez de
-// crear uno nuevo, porque el plan gratuito de Vercel limita a 12 funciones
-// (ver nota en api/mercadopago.js). Se
-// distingue por el campo "tipo" que manda la app:
-//   tipo: 'semana' (o sin "tipo", para no romper nada que ya funcionaba)
-//         -> guarda Otros gastos y notas de una semana.
-//   tipo: 'meta'   -> guarda el valor de referencia fijo para Ganancia neta.
+// Varios "guardados" de Administración en un solo archivo (el plan gratuito
+// de Vercel limita a 12 funciones — ver nota en api/mercadopago.js). Solo
+// con token de admin. Se distingue por el campo "tipo" que manda la app:
+//   tipo: 'platilloCosto' { platillo, mdoCents, entregaCents, comisionCents,
+//         ingresoCents, materiaPrimaCents, totalCents } -> guarda (o
+//         actualiza) los 6 números de costeo de UN platillo — ver
+//         Administración > Gastos operativos. api/admin-data.js es quien
+//         multiplica esos 6 números por los pedidos de cada semana.
 //   tipo: 'croissantPrice' -> guarda el precio fijo de un croissant (para
-//         armar las ventas de croissants que llegan de Cocina, ver
-//         api/admin-data.js y api/staff.js).
+//         que Cocina muestre el total a cobrar — ver api/staff.js).
 //   tipo: 'notificacion'  -> manda una notificación push — a TODOS los
 //         clientes que la tengan activada (ej. avisar una promoción) si no
 //         se manda "userId", o SOLO a ese cliente si sí se manda — ver
-//         Administración > Gastos > "Aviso a clientes", y api/_push.js.
+//         Administración > Clientes > "Aviso a clientes", y api/_push.js.
 //   tipo: 'eliminarCliente' { userId, asunto, mensaje } -> borra la cuenta
 //         de ese cliente (y, con ON DELETE CASCADE, su historial de
 //         pedidos y sus notificaciones activadas — ver schema.sql) y le
@@ -42,21 +35,29 @@ module.exports = async function handler(req, res) {
 
   const { tipo } = req.body || {};
 
-  if (tipo === 'meta') {
+  if (tipo === 'platilloCosto') {
     try {
-      const { metaRecuperacionCents } = req.body || {};
+      const { platillo, mdoCents, entregaCents, comisionCents, ingresoCents, materiaPrimaCents, totalCents } = req.body || {};
+      const nombre = (platillo || '').trim();
+      if (!nombre) {
+        res.status(400).json({ error: 'Falta el nombre del platillo.' });
+        return;
+      }
       const pool = getPool();
       await pool.query(
-        `INSERT INTO business_settings (id, meta_recuperacion_cents, updated_at)
-         VALUES (1, $1, now())
-         ON CONFLICT (id)
-         DO UPDATE SET meta_recuperacion_cents = EXCLUDED.meta_recuperacion_cents, updated_at = now()`,
-        [metaRecuperacionCents || 0]
+        `INSERT INTO platillo_costos (platillo, mdo_cents, entrega_cents, comision_cents, ingreso_cents, materia_prima_cents, total_cents, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+         ON CONFLICT (platillo)
+         DO UPDATE SET mdo_cents = EXCLUDED.mdo_cents, entrega_cents = EXCLUDED.entrega_cents,
+                       comision_cents = EXCLUDED.comision_cents, ingreso_cents = EXCLUDED.ingreso_cents,
+                       materia_prima_cents = EXCLUDED.materia_prima_cents, total_cents = EXCLUDED.total_cents,
+                       updated_at = now()`,
+        [nombre, mdoCents || 0, entregaCents || 0, comisionCents || 0, ingresoCents || 0, materiaPrimaCents || 0, totalCents || 0]
       );
       res.status(200).json({ ok: true });
     } catch (err) {
-      console.error('[admin-costs:meta] Error:', err);
-      res.status(500).json({ error: 'Error del servidor al guardar el valor de referencia.' });
+      console.error('[admin-costs:platilloCosto] Error:', err);
+      res.status(500).json({ error: 'Error del servidor al guardar el costeo del platillo.' });
     }
     return;
   }
@@ -158,23 +159,5 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  try {
-    const { weekStart, otrosGastosCents, notas } = req.body || {};
-    if (!weekStart) {
-      res.status(400).json({ error: 'Falta la semana.' });
-      return;
-    }
-    const pool = getPool();
-    await pool.query(
-      `INSERT INTO weekly_costs (week_start, otros_gastos_cents, notas, updated_at)
-       VALUES ($1, $2, $3, now())
-       ON CONFLICT (week_start)
-       DO UPDATE SET otros_gastos_cents = EXCLUDED.otros_gastos_cents, notas = EXCLUDED.notas, updated_at = now()`,
-      [weekStart, otrosGastosCents || 0, notas || '']
-    );
-    res.status(200).json({ ok: true });
-  } catch (err) {
-    console.error('[admin-costs] Error:', err);
-    res.status(500).json({ error: 'Error del servidor al guardar los gastos.' });
-  }
+  res.status(400).json({ error: 'Tipo de guardado no reconocido.' });
 };
