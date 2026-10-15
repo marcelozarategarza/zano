@@ -284,7 +284,21 @@
 // confirmar una vez más; al confirmar, primero se le manda ese correo al
 // cliente y luego se borra su cuenta por completo (junto con su historial
 // de pedidos y sus notificaciones activadas) — no se puede deshacer.
-const CACHE_NAME = 'zano-shell-v66';
+
+// v67: Administración se reorganizó por completo. Se borraron las pestañas
+// Resumen, Platillos, Gastos e Historial (y sus fórmulas: Ganancia
+// bruta/neta, el reparto fijo de $70 por platillo, "Otros gastos" y "valor
+// de referencia"). Quedan 4 pestañas: Entregas y Clientes (igual que
+// antes — "Aviso a clientes" se movió de Gastos a Clientes), más 2 nuevas:
+// "Pedidos de la semana" (cada platillo pedido esa semana con cuántas
+// veces se pidió, tocar uno despliega quién lo pidió, y un total abajo) y
+// "Gastos operativos" (el costeo de cada platillo — MdO, costo de entrega,
+// comisión, ingreso, materia prima y total sin IVA — multiplicado por los
+// pedidos de la semana, con esos mismos 6 números editables al final de la
+// pestaña). "Precio del croissant" se movió de Gastos a Gastos operativos
+// (lo sigue usando Cocina). Hace falta correr de nuevo schema.sql completo
+// (crea la tabla platillo_costos) — ver README.
+const CACHE_NAME = 'zano-shell-v67';
 const APP_SHELL = [
   './',
   './index.html',
