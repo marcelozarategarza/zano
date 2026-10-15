@@ -521,15 +521,21 @@ let state = {
   adminPassword: '',
   adminError: '',
   adminLoading: false,
-  adminData: null,           // { customers, weeks, topDishesAllTime, costs }
-  adminTab: 'resumen',       // resumen | clientes | platillos | calendario | gastos
-  adminSelectedWeek: null,   // week_start elegido en Resumen/Calendario
-  adminCostSaving: false,
-  adminCostSaved: false,
-  adminMetaSaving: false,
-  adminMetaSaved: false,
+  adminData: null,           // { customers, weeks, platilloCostos, croissantPriceCents }
+  adminTab: 'calendario',    // calendario | clientes | pedidos | operativos
+  adminSelectedWeek: null,   // week_start elegido en Entregas/Pedidos de la semana/Gastos operativos
   adminCroissantPriceSaving: false,
   adminCroissantPriceSaved: false,
+
+  // "Pedidos de la semana" — nombre del platillo cuyo detalle (quién lo
+  // pidió) está desplegado ahora mismo, o null si ninguno.
+  adminPedidoAbierto: null,
+
+  // "Gastos operativos" — editar el costeo (6 números) de un platillo:
+  // adminCostoSaving/adminCostoSaved son objetos { [platillo]: true/false },
+  // porque cada platillo se guarda por separado con su propio botón.
+  adminCostoSaving: {},
+  adminCostoSaved: {},
 
   // "Aviso a clientes" (notificación push, ej. una promoción) — a todos o
   // a uno solo (adminNotifTargetId vacío = todos; con un id, solo ese
@@ -1514,7 +1520,7 @@ function adminLogout() {
     adminData: null,
     adminPassword: '',
     adminError: '',
-    adminTab: 'resumen',
+    adminTab: 'calendario',
     adminSelectedWeek: null
   });
 }
@@ -1527,33 +1533,6 @@ function exportarExcelAdmin() {
   const data = state.adminData;
   if (!data || typeof XLSX === 'undefined') return;
 
-  const costsPorSemana = {};
-  (data.costs || []).forEach((c) => { costsPorSemana[c.weekStart] = c; });
-
-  const metaRecuperacionCents = data.metaRecuperacionCents || 0;
-  const cumMapExcel = cumulativePedidosPorSemana(data.weeks || []);
-
-  const resumenRows = (data.weeks || []).map((w) => {
-    const c = costsPorSemana[w.weekStart];
-    const otrosGastosCents = c ? c.otrosGastosCents : 0;
-    const gastosCents = gastosAutoCents(w) + otrosGastosCents;
-    const pedidosAcumulados = cumMapExcel[w.weekStart] || 0;
-    return {
-      'Semana': fmtWeekLabel(w.weekStart),
-      'Ventas': (w.ventasCents || 0) / 100,
-      'Pedidos pagados': w.pedidosPagados || 0,
-      'Pedidos pagados acumulados': pedidosAcumulados,
-      'Ingredientes': (w.ingredientesAutoCents || 0) / 100,
-      'Sueldo del jefe': (w.sueldoJefeCents || 0) / 100,
-      'Sueldo de los cocineros': (w.sueldoCocinerosCents || 0) / 100,
-      'Comisión al instituto': (w.comisionInstitutoCents || 0) / 100,
-      'Pago de inversión': (w.pagoInversionCents || 0) / 100,
-      'Otros gastos': otrosGastosCents / 100,
-      'Ganancia bruta': ((w.ventasCents || 0) - gastosCents) / 100,
-      'Ganancia neta (acumulada)': ((20 * 100 * pedidosAcumulados) - metaRecuperacionCents) / 100
-    };
-  });
-
   const clientesRows = (data.customers || []).map((u) => ({
     'Nombre': u.name,
     'Correo': u.email,
@@ -1562,91 +1541,98 @@ function exportarExcelAdmin() {
     'Cliente desde': u.createdAt || ''
   }));
 
-  const platillosRows = (data.topDishesAllTime || []).map((p) => ({
-    'Platillo': p.name,
-    'Veces pedido': p.count
-  }));
+  const pedidosRows = [];
+  const gastosRows = [];
+  const totalesRows = [];
+  (data.weeks || []).forEach((w) => {
+    Object.entries(w.dishCounts || {}).sort((a, b) => b[1] - a[1]).forEach(([platillo, count]) => {
+      pedidosRows.push({ 'Semana': fmtWeekLabel(w.weekStart), 'Platillo': platillo, 'Pedidos': count });
+      const c = (w.dishCosts && w.dishCosts[platillo]) || {};
+      gastosRows.push({
+        'Semana': fmtWeekLabel(w.weekStart),
+        'Platillo': platillo,
+        'Pedidos': count,
+        'MdO': (c.mdoCents || 0) / 100,
+        'Costo de entrega': (c.entregaCents || 0) / 100,
+        'Comisión': (c.comisionCents || 0) / 100,
+        'Ingreso': (c.ingresoCents || 0) / 100,
+        'Materia prima': (c.materiaPrimaCents || 0) / 100,
+        'Total sin IVA': (c.totalCents || 0) / 100
+      });
+    });
+    const t = w.opTotales || {};
+    totalesRows.push({
+      'Semana': fmtWeekLabel(w.weekStart),
+      'Pedidos de la semana': w.pedidosTotal || 0,
+      'MdO': (t.mdoCents || 0) / 100,
+      'Costo de entrega': (t.entregaCents || 0) / 100,
+      'Comisión': (t.comisionCents || 0) / 100,
+      'Ingreso': (t.ingresoCents || 0) / 100,
+      'Materia prima': (t.materiaPrimaCents || 0) / 100,
+      'Total sin IVA': (t.totalCents || 0) / 100
+    });
+  });
 
-  const gastosRows = (data.costs || []).map((c) => ({
-    'Semana': fmtWeekLabel(c.weekStart),
-    'Otros gastos': c.otrosGastosCents / 100,
-    'Notas': c.notas || ''
-  }));
-
-  const referenciaRows = [{
-    'Valor de referencia (para Ganancia neta)': metaRecuperacionCents / 100,
-    'Precio del croissant': (data.croissantPriceCents || 0) / 100,
-    'Nota': 'Ganancia neta = $20 por cada pedido pagado ACUMULADO de todas las semanas − valor de referencia. Las ventas de croissants están aparte, no se suman a Ganancia bruta/neta.'
-  }];
-
-  const croissantsRows = (data.croissants || []).map((c) => ({
-    'Semana': fmtWeekLabel(c.weekStart),
-    'Vendidos en efectivo': c.efectivoQty,
-    'Vendidos con tarjeta': c.tarjetaQty,
-    'Total vendidos': c.totalQty,
-    'Ventas de croissants': c.totalCents / 100
+  const costeoRows = (data.platilloCostos || []).map((c) => ({
+    'Platillo': c.platillo,
+    'MdO': c.mdoCents / 100,
+    'Costo de entrega': c.entregaCents / 100,
+    'Comisión': c.comisionCents / 100,
+    'Ingreso': c.ingresoCents / 100,
+    'Materia prima': c.materiaPrimaCents / 100,
+    'Total sin IVA': c.totalCents / 100
   }));
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumenRows), 'Resumen semanal');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clientesRows), 'Clientes');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(platillosRows), 'Platillos más vendidos');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(gastosRows), 'Otros gastos');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(croissantsRows), 'Croissants');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(referenciaRows), 'Valor de referencia');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pedidosRows), 'Pedidos de la semana');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(gastosRows), 'Gastos operativos');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(totalesRows), 'Totales por semana');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(costeoRows), 'Costeo por platillo');
 
   const hoy = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `ZANO - Reporte ${hoy}.xlsx`);
 }
 
-async function saveAdminCost() {
-  if (!state.adminSelectedWeek) return;
-  const otrosInput = document.getElementById('admin-cost-otros');
-  const notasInput = document.getElementById('admin-cost-notas');
-  setState({ adminCostSaving: true, adminCostSaved: false });
+// Guarda los 6 números de costeo de UN platillo (Administración > Gastos
+// operativos > Editar costos por platillo). platillo va en el id de cada
+// input para no chocar entre sí — ver renderAdminOperativos().
+async function saveCostoPlatillo(platillo) {
+  const safe = platillo.replace(/[^a-zA-Z0-9]/g, '_');
+  const val = (id) => {
+    const el = document.getElementById(id);
+    return Math.round((parseFloat(el ? el.value : 0) || 0) * 100);
+  };
+  setState({ adminCostoSaving: { ...state.adminCostoSaving, [platillo]: true }, adminCostoSaved: { ...state.adminCostoSaved, [platillo]: false } });
   try {
     const r = await apiFetch('/api/admin-costs', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + state.adminToken },
       body: {
-        tipo: 'semana',
-        weekStart: state.adminSelectedWeek,
-        otrosGastosCents: Math.round((parseFloat(otrosInput ? otrosInput.value : 0) || 0) * 100),
-        notas: notasInput ? notasInput.value : ''
+        tipo: 'platilloCosto',
+        platillo,
+        mdoCents: val('costo-mdo-' + safe),
+        entregaCents: val('costo-entrega-' + safe),
+        comisionCents: val('costo-comision-' + safe),
+        ingresoCents: val('costo-ingreso-' + safe),
+        materiaPrimaCents: val('costo-materia-' + safe),
+        totalCents: val('costo-total-' + safe)
       }
     });
     if (r.ok) {
-      setState({ adminCostSaving: false, adminCostSaved: true });
+      setState({ adminCostoSaving: { ...state.adminCostoSaving, [platillo]: false }, adminCostoSaved: { ...state.adminCostoSaved, [platillo]: true } });
       loadAdminData();
     } else {
-      setState({ adminCostSaving: false, adminError: (r.data && r.data.error) || 'No se pudieron guardar los gastos.' });
+      setState({ adminCostoSaving: { ...state.adminCostoSaving, [platillo]: false }, adminError: (r.data && r.data.error) || 'No se pudo guardar el costeo.' });
     }
   } catch (e) {
-    setState({ adminCostSaving: false, adminError: 'No hay conexión con el servidor.' });
+    setState({ adminCostoSaving: { ...state.adminCostoSaving, [platillo]: false }, adminError: 'No hay conexión con el servidor.' });
   }
 }
 
-async function saveAdminMeta() {
-  const metaInput = document.getElementById('admin-meta-recuperacion');
-  setState({ adminMetaSaving: true, adminMetaSaved: false });
-  try {
-    const r = await apiFetch('/api/admin-costs', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + state.adminToken },
-      body: {
-        tipo: 'meta',
-        metaRecuperacionCents: Math.round((parseFloat(metaInput ? metaInput.value : 0) || 0) * 100)
-      }
-    });
-    if (r.ok) {
-      setState({ adminMetaSaving: false, adminMetaSaved: true });
-      loadAdminData();
-    } else {
-      setState({ adminMetaSaving: false, adminError: (r.data && r.data.error) || 'No se pudo guardar el valor de referencia.' });
-    }
-  } catch (e) {
-    setState({ adminMetaSaving: false, adminError: 'No hay conexión con el servidor.' });
-  }
+// "Pedidos de la semana" — abre/cierra la lista de quién pidió ese platillo.
+function togglePedidoDish(nombre) {
+  setState({ adminPedidoAbierto: state.adminPedidoAbierto === nombre ? null : nombre });
 }
 
 async function saveAdminCroissantPrice() {
@@ -2794,31 +2780,6 @@ function renderAdminLogin() {
   `;
 }
 
-// Suma los 4 gastos que ya se calculan solos por platillo vendido (ver
-// api/admin-data.js): Ingredientes, Sueldo del jefe, Sueldo de los
-// cocineros, Comisión al instituto y Pago de inversión.
-function gastosAutoCents(w) {
-  if (!w) return 0;
-  return (w.ingredientesAutoCents || 0) + (w.sueldoJefeCents || 0) + (w.sueldoCocinerosCents || 0)
-    + (w.comisionInstitutoCents || 0) + (w.pagoInversionCents || 0);
-}
-
-// Para Ganancia neta: cuenta los pedidos pagados ACUMULADOS desde la semana
-// más antigua disponible hasta cada semana (incluyéndola) — no solo los de
-// esa semana. Ojo: solo alcanza a contar semanas de los últimos ~6 meses
-// (el mismo límite que ya trae api/admin-data.js), no "desde que empezó el
-// negocio" si lleva más tiempo abierto que eso.
-function cumulativePedidosPorSemana(weeks) {
-  const map = {};
-  const ordenAsc = [...weeks].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
-  let acumulado = 0;
-  for (const w of ordenAsc) {
-    acumulado += w.pedidosPagados || 0;
-    map[w.weekStart] = acumulado;
-  }
-  return map;
-}
-
 function renderAdminWeekPicker(data) {
   const weeks = data.weeks || [];
   if (weeks.length === 0) {
@@ -2826,79 +2787,9 @@ function renderAdminWeekPicker(data) {
   }
   const current = state.adminSelectedWeek || weeks[0].weekStart;
   return `
-    <select onchange="setState({adminSelectedWeek:this.value, adminCostSaved:false})">
+    <select onchange="setState({adminSelectedWeek:this.value, adminPedidoAbierto:null})">
       ${weeks.map((w) => `<option value="${w.weekStart}" ${current === w.weekStart ? 'selected' : ''}>${esc(fmtWeekLabel(w.weekStart))}</option>`).join('')}
     </select>
-  `;
-}
-
-function renderAdminResumen(data) {
-  const weeks = data.weeks || [];
-  const costs = data.costs || [];
-  const week = weeks.find((w) => w.weekStart === state.adminSelectedWeek) || weeks[0] || null;
-  const cost = week ? costs.find((c) => c.weekStart === week.weekStart) : null;
-
-  const ventas = week ? week.ventasCents : 0;
-  const otrosGastosCents = cost ? cost.otrosGastosCents : 0;
-  const gastosSemana = (week ? gastosAutoCents(week) : 0) + otrosGastosCents;
-  const bruta = ventas - gastosSemana;
-  const metaRecuperacionCents = data.metaRecuperacionCents || 0;
-  const cumMap = cumulativePedidosPorSemana(weeks);
-  const pedidosAcumulados = week ? (cumMap[week.weekStart] || 0) : 0;
-  const neta = (20 * 100 * pedidosAcumulados) - metaRecuperacionCents;
-
-  const ventasTotalAllTime = weeks.reduce((s, w) => s + w.ventasCents, 0);
-  const pedidosTotalAllTime = weeks.reduce((s, w) => s + w.pedidosPagados, 0);
-
-  const selectedWeekStart = week ? week.weekStart : state.adminSelectedWeek;
-  const croissantWeek = (data.croissants || []).find((c) => c.weekStart === selectedWeekStart) || null;
-  const croissantPriceCents = data.croissantPriceCents || 0;
-
-  return `
-    <div style="display:flex;flex-direction:column;gap:14px;">
-      <div>
-        <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:6px;">SEMANA</div>
-        ${renderAdminWeekPicker(data)}
-      </div>
-
-      ${week ? `
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        <div class="admin-stat"><div class="val">${fmtMoney(ventas)}</div><div class="lbl">Ventas de la semana</div></div>
-        <div class="admin-stat"><div class="val">${week.pedidosPagados}</div><div class="lbl">Pedidos pagados</div></div>
-        <div class="admin-stat"><div class="val" style="color:${bruta >= 0 ? 'var(--green)' : 'var(--danger)'};">${fmtMoney(bruta)}</div><div class="lbl">Ganancia bruta</div></div>
-        <div class="admin-stat"><div class="val" style="color:${neta >= 0 ? 'var(--green)' : 'var(--danger)'};">${fmtMoney(neta)}</div><div class="lbl">Ganancia neta (acumulada)</div></div>
-      </div>
-      <div style="display:flex;gap:8px;align-items:flex-start;background:var(--chip);border-radius:12px;padding:12px 14px;">
-        ${icon('info', { w: 16, h: 16, stroke: 'var(--muted)', sw: 1.8 })}
-        <span style="font-size:12px;line-height:1.4;color:var(--muted);">Ganancia neta = $20 × pedidos pagados ACUMULADOS hasta esta semana − tu valor de referencia. Va sumando pedidos de todas las semanas (no solo de esta) hasta alcanzar tu valor de referencia; por eso hoy sale negativa: significa que todavía te faltan pedidos para llegar a ese valor. Pedidos acumulados hasta esta semana: ${pedidosAcumulados}.</span>
-      </div>
-      ${!cost ? `
-      <div style="display:flex;gap:8px;align-items:flex-start;background:var(--chip);border-radius:12px;padding:12px 14px;">
-        ${icon('info', { w: 16, h: 16, stroke: 'var(--muted)', sw: 1.8 })}
-        <span style="font-size:12px;line-height:1.4;color:var(--muted);">Todavía no capturas "Otros gastos" de esta semana (Ingredientes, Sueldo del jefe, Sueldo de los cocineros, Comisión al instituto y Pago de inversión ya se calculan solos). Ve a la pestaña "Gastos" si tuviste otros gastos que agregar.</span>
-      </div>` : ''}
-      ${metaRecuperacionCents === 0 ? `
-      <div style="display:flex;gap:8px;align-items:flex-start;background:var(--chip);border-radius:12px;padding:12px 14px;">
-        ${icon('info', { w: 16, h: 16, stroke: 'var(--muted)', sw: 1.8 })}
-        <span style="font-size:12px;line-height:1.4;color:var(--muted);">Todavía no capturas tu valor de referencia para Ganancia neta (es un solo valor fijo, no cambia por semana). Ve a la pestaña "Gastos" para ponerlo.</span>
-      </div>` : ''}
-      ` : `<p style="margin:0;font-size:12.5px;color:var(--muted2);">Elige una semana con pedidos pagados.</p>`}
-
-      <div class="card" style="padding:14px;">
-        <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:4px;">CROISSANTS DE LA SEMANA <span style="font-weight:400;color:var(--muted2);">— aparte, sin pedido previo (viene de Cocina)</span></div>
-        <div class="admin-table-row"><span style="font-size:13px;color:var(--text);">Vendidos en efectivo</span><span style="font-size:13px;font-weight:700;color:var(--text);">${croissantWeek ? croissantWeek.efectivoQty : 0}</span></div>
-        <div class="admin-table-row"><span style="font-size:13px;color:var(--text);">Vendidos con tarjeta</span><span style="font-size:13px;font-weight:700;color:var(--text);">${croissantWeek ? croissantWeek.tarjetaQty : 0}</span></div>
-        <div class="admin-table-row"><span style="font-size:13px;color:var(--text);">Ventas de croissants</span><span style="font-size:13px;font-weight:700;color:var(--text);">${fmtMoney(croissantWeek ? croissantWeek.totalCents : 0)}</span></div>
-        ${croissantPriceCents === 0 ? `<div style="margin-top:8px;font-size:11px;color:var(--muted2);">Todavía no capturas el precio del croissant, por eso las ventas salen en $0.00. Ve a la pestaña "Gastos" para ponerlo.</div>` : ''}
-      </div>
-
-      <div class="card" style="padding:14px;">
-        <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:4px;">ACUMULADO (últimos 6 meses)</div>
-        <div class="admin-table-row"><span style="font-size:13px;color:var(--text);">Ventas totales</span><span style="font-size:13px;font-weight:700;color:var(--text);">${fmtMoney(ventasTotalAllTime)}</span></div>
-        <div class="admin-table-row"><span style="font-size:13px;color:var(--text);">Pedidos pagados</span><span style="font-size:13px;font-weight:700;color:var(--text);">${pedidosTotalAllTime}</span></div>
-        <div class="admin-table-row"><span style="font-size:13px;color:var(--text);">Clientes registrados</span><span style="font-size:13px;font-weight:700;color:var(--text);">${(data.customers || []).length}</span></div>
-      </div>
-    </div>
   `;
 }
 
@@ -2910,12 +2801,47 @@ function renderAdminClientes(data) {
       <span style="font-size:12.5px;line-height:1.4;color:var(--green);">${esc(state.adminEliminarAviso)}</span>
     </div>` : '';
 
+  const avisoClientesHtml = `
+    <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:8px;">
+      <div style="font-size:11.5px;font-weight:700;color:var(--muted);">AVISO A CLIENTES</div>
+      ${state.adminNotifSent ? `
+      ${state.adminNotifSentCount > 0 ? `
+      <div style="display:flex;align-items:center;gap:6px;">${icon('check', { w: 14, h: 14, stroke: 'var(--green)', sw: 2.2 })}<span style="font-size:12.5px;color:var(--green);">Enviada a ${state.adminNotifSentCount} dispositivo(s) activado(s).</span></div>
+      ` : `
+      <span style="font-size:12.5px;color:var(--amber-text);">No se mandó a ningún dispositivo — ${state.adminNotifTargetLabel ? esc(state.adminNotifTargetLabel) + ' todavía no activa' : 'ningún cliente tiene activadas'} las notificaciones.</span>
+      `}
+      <button onclick="reiniciarNotifMasiva()" style="font-size:12.5px;font-weight:700;color:var(--green);align-self:flex-start;">Mandar otra</button>
+      ` : `
+      <span style="font-size:11.5px;line-height:1.4;color:var(--muted);">Manda una notificación a todos los clientes que ya la tengan activada en su teléfono (Perfil > Cuenta > Notificaciones), o elige uno solo abajo para avisarle algo puntual a esa persona. No le llega a quien no la haya activado, y no se puede deshacer una vez enviada.</span>
+      <select id="admin-notif-cliente">
+        <option value="">Todos los clientes</option>
+        ${(data.customers || []).map((c) => `<option value="${c.id}">${esc(c.name)} — ${esc(c.email)}</option>`).join('')}
+      </select>
+      <input id="admin-notif-titulo" type="text" maxlength="40" placeholder="Título (opcional — por defecto ZANO)">
+      <textarea id="admin-notif-mensaje" placeholder="Ej. 2x1 en Dátiles Reese's solo hoy — pide tu semana antes de que se acabe"></textarea>
+      ${state.adminNotifError ? `<span style="font-size:11.5px;color:var(--danger);">${esc(state.adminNotifError)}</span>` : ''}
+      ${state.adminNotifConfirmOpen ? `
+      <div style="display:flex;flex-direction:column;gap:8px;background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:10px;padding:10px;">
+        <span style="font-size:11.5px;line-height:1.4;color:var(--amber-text);">¿Seguro? Esto le llega de inmediato a ${state.adminNotifTargetId ? esc(state.adminNotifTargetLabel) : 'TODOS los clientes con notificaciones activadas'}.</span>
+        <div style="display:flex;gap:8px;">
+          <button onclick="enviarNotificacionMasiva()" ${state.adminNotifSending ? 'disabled' : ''} style="flex:1;padding:10px;border-radius:10px;font-size:12.5px;font-weight:700;background:${ACCENT};color:var(--on-accent);">${state.adminNotifSending ? 'Enviando…' : (state.adminNotifTargetId ? 'Sí, enviar' : 'Sí, enviar a todos')}</button>
+          <button onclick="setState({adminNotifConfirmOpen:false})" style="flex:1;padding:10px;border-radius:10px;font-size:12.5px;font-weight:700;background:var(--chip);color:var(--text);">Cancelar</button>
+        </div>
+      </div>
+      ` : `
+      <button onclick="pedirConfirmacionNotifMasiva()" class="pill-btn">Enviar</button>
+      `}
+      `}
+    </div>
+  `;
+
   if (customers.length === 0) {
-    return avisoHtml + `<p style="margin:0;font-size:12.5px;color:var(--muted2);text-align:center;padding:24px 0;">Todavía no hay clientes registrados.</p>`;
+    return avisoHtml + avisoClientesHtml + `<p style="margin:0;font-size:12.5px;color:var(--muted2);text-align:center;padding:24px 0;">Todavía no hay clientes registrados.</p>`;
   }
   return `
     <div style="display:flex;flex-direction:column;gap:14px;">
       ${avisoHtml}
+      ${avisoClientesHtml}
       <div class="card" style="padding:2px 14px;">
         ${customers.map((c) => {
           const abierto = state.adminEliminarId === c.id;
@@ -2956,29 +2882,16 @@ function renderAdminClientes(data) {
   `;
 }
 
-function renderAdminPlatillos(data) {
+// "Pedidos de la semana" — platillos pedidos esa semana, con cuántas veces
+// se pidió cada uno y un total acumulado abajo. Tocar un platillo despliega
+// quién lo pidió (nombre, día e institución).
+function renderAdminPedidos(data) {
   const weeks = data.weeks || [];
   const week = weeks.find((w) => w.weekStart === state.adminSelectedWeek) || weeks[0] || null;
-  const weekDishes = week
+  const dishes = week
     ? Object.entries(week.dishCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count)
     : [];
-  const allTime = data.topDishesAllTime || [];
-  const maxWeek = weekDishes[0] ? weekDishes[0].count : 1;
-  const maxAll = allTime[0] ? allTime[0].count : 1;
-
-  const renderList = (list, max) => list.length === 0
-    ? `<p style="margin:0;font-size:12.5px;color:var(--muted2);">Sin pedidos todavía.</p>`
-    : list.map((d) => `
-        <div style="margin-bottom:10px;">
-          <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px;">
-            <span style="font-weight:600;color:var(--text);">${esc(d.name)}</span>
-            <span style="color:var(--muted);">${d.count}</span>
-          </div>
-          <div style="height:7px;border-radius:999px;background:var(--chip);overflow:hidden;">
-            <div style="height:100%;width:${Math.max(6, (d.count / max) * 100)}%;background:var(--green);border-radius:999px;"></div>
-          </div>
-        </div>
-      `).join('');
+  const totalPedidos = week ? (week.pedidosTotal || 0) : 0;
 
   return `
     <div style="display:flex;flex-direction:column;gap:16px;">
@@ -2986,14 +2899,31 @@ function renderAdminPlatillos(data) {
         <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:6px;">SEMANA</div>
         ${renderAdminWeekPicker(data)}
       </div>
-      <div class="card" style="padding:14px;">
-        <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:10px;">MÁS PEDIDOS ESTA SEMANA</div>
-        ${renderList(weekDishes, maxWeek)}
+      ${!week ? `<p style="margin:0;font-size:12.5px;color:var(--muted2);">Elige una semana con pedidos pagados.</p>` : dishes.length === 0 ? `<p style="margin:0;font-size:12.5px;color:var(--muted2);">Sin pedidos esta semana.</p>` : `
+      <div class="card" style="padding:2px 14px;">
+        ${dishes.map((d) => {
+          const abierto = state.adminPedidoAbierto === d.name;
+          const clientes = (week.dishClients && week.dishClients[d.name]) || [];
+          return `
+          <div class="admin-table-row" style="align-items:flex-start;flex-direction:column;gap:0;padding:10px 0;">
+            <button onclick="togglePedidoDish(${esc(JSON.stringify(d.name))})" style="width:100%;display:flex;justify-content:space-between;align-items:center;gap:8px;text-align:left;">
+              <span style="font-size:13.5px;font-weight:700;color:var(--text);">${esc(d.name)}</span>
+              <span style="display:flex;align-items:center;gap:6px;">
+                <span style="font-size:13px;font-weight:700;color:var(--green);">${d.count}</span>
+                ${icon(abierto ? 'chevronDown' : 'chevronRight', { w: 16, h: 16, stroke: 'var(--muted2)' })}
+              </span>
+            </button>
+            ${abierto ? `
+            <div style="width:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:5px;background:var(--chip);border-radius:10px;padding:10px 12px;margin-top:6px;">
+              ${clientes.map((cl) => `<div style="font-size:12px;color:var(--text);">${esc(cl.nombre)} <span style="color:var(--muted2);">— ${esc(cl.dia)}${cl.plantel ? ' · ' + esc(cl.plantel) : ''}</span></div>`).join('')}
+            </div>
+            ` : ''}
+          </div>
+          `;
+        }).join('')}
       </div>
-      <div class="card" style="padding:14px;">
-        <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:10px;">HISTÓRICO (últimos 6 meses)</div>
-        ${renderList(allTime, maxAll)}
-      </div>
+      <div class="admin-stat"><div class="val">${totalPedidos}</div><div class="lbl">Total de pedidos de la semana</div></div>
+      `}
     </div>
   `;
 }
@@ -3032,150 +2962,93 @@ function renderAdminCalendario(data) {
   `;
 }
 
-function renderAdminGastos(data) {
+// "Gastos operativos" — por cada platillo pedido esa semana: cuántas veces
+// se pidió × sus 6 números de costeo (MdO, entrega, comisión, ingreso,
+// materia prima, total sin IVA), más el total de esos 6 números sumando
+// todos los platillos. Abajo, el precio del croissant (lo sigue usando
+// Cocina) y el costeo editable de cada platillo.
+function renderAdminOperativos(data) {
   const weeks = data.weeks || [];
-  const costs = data.costs || [];
-  const selectedWeek = state.adminSelectedWeek || (weeks[0] && weeks[0].weekStart) || null;
-  const week = weeks.find((w) => w.weekStart === selectedWeek) || null;
-  const existing = costs.find((c) => c.weekStart === selectedWeek) || null;
-
-  const otrosVal = existing ? (existing.otrosGastosCents / 100).toFixed(2) : '';
-  const notasVal = existing ? existing.notas : '';
-  const metaVal = ((data.metaRecuperacionCents || 0) / 100).toFixed(2);
+  const week = weeks.find((w) => w.weekStart === state.adminSelectedWeek) || weeks[0] || null;
+  const dishes = week
+    ? Object.entries(week.dishCosts || {}).map(([name, c]) => ({ name, ...c })).sort((a, b) => b.count - a.count)
+    : [];
+  const t = (week && week.opTotales) || {};
   const croissantPriceVal = ((data.croissantPriceCents || 0) / 100).toFixed(2);
+  const costos = data.platilloCostos || [];
 
   return `
-    <div style="display:flex;flex-direction:column;gap:14px;">
-      <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:6px;">
-        <div style="font-size:11.5px;font-weight:700;color:var(--muted);">VALOR DE REFERENCIA (Ganancia neta)</div>
-        <span style="font-size:11.5px;line-height:1.4;color:var(--muted);">Es un solo valor fijo — no cambia por semana. Ganancia neta = $20 por cada pedido pagado ACUMULADO de todas las semanas − este valor. Va sumando pedidos con el tiempo; mientras no junte suficientes pedidos para llegar a este valor, Ganancia neta sale negativa (normal).</span>
-        <input id="admin-meta-recuperacion" type="number" inputmode="decimal" step="0.01" min="0" value="${metaVal}" placeholder="0.00">
-        <button onclick="saveAdminMeta()" class="pill-btn" ${state.adminMetaSaving ? 'disabled' : ''}>${state.adminMetaSaving ? 'Guardando…' : 'Guardar valor de referencia'}</button>
-        ${state.adminMetaSaved ? `<div style="display:flex;align-items:center;gap:6px;justify-content:center;">${icon('check', { w: 14, h: 14, stroke: 'var(--green)', sw: 2.2 })}<span style="font-size:12px;color:var(--green);">Guardado.</span></div>` : ''}
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div>
+        <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:6px;">SEMANA</div>
+        ${renderAdminWeekPicker(data)}
       </div>
+
+      ${!week ? `<p style="margin:0;font-size:12.5px;color:var(--muted2);">Elige una semana con pedidos pagados.</p>` : `
+      <div class="card" style="padding:14px;">
+        <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:10px;">TOTALES DE LA SEMANA</div>
+        <div class="admin-table-row"><span style="font-size:12.5px;color:var(--text);">MdO</span><span style="font-size:12.5px;font-weight:700;color:var(--text);">${fmtMoney(t.mdoCents)}</span></div>
+        <div class="admin-table-row"><span style="font-size:12.5px;color:var(--text);">Costo de entrega</span><span style="font-size:12.5px;font-weight:700;color:var(--text);">${fmtMoney(t.entregaCents)}</span></div>
+        <div class="admin-table-row"><span style="font-size:12.5px;color:var(--text);">Comisión</span><span style="font-size:12.5px;font-weight:700;color:var(--text);">${fmtMoney(t.comisionCents)}</span></div>
+        <div class="admin-table-row"><span style="font-size:12.5px;color:var(--text);">Ingreso</span><span style="font-size:12.5px;font-weight:700;color:var(--text);">${fmtMoney(t.ingresoCents)}</span></div>
+        <div class="admin-table-row"><span style="font-size:12.5px;color:var(--text);">Materia prima</span><span style="font-size:12.5px;font-weight:700;color:var(--text);">${fmtMoney(t.materiaPrimaCents)}</span></div>
+        <div class="admin-table-row" style="border-top:1px solid var(--chip);margin-top:4px;padding-top:10px;"><span style="font-size:13px;font-weight:700;color:var(--text);">Total sin IVA</span><span style="font-size:13px;font-weight:700;color:var(--green);">${fmtMoney(t.totalCents)}</span></div>
+      </div>
+
+      ${dishes.length === 0 ? '' : `
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="font-size:11.5px;font-weight:700;color:var(--muted);">POR PLATILLO</div>
+        ${dishes.map((d) => `
+          <div class="card" style="padding:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <span style="font-size:13.5px;font-weight:700;color:var(--text);">${esc(d.name)}</span>
+              <span style="font-size:11.5px;color:var(--muted);">${d.count} pedido${d.count === 1 ? '' : 's'}</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div class="admin-stat"><div class="val">${fmtMoney(d.mdoCents)}</div><div class="lbl">MdO</div></div>
+              <div class="admin-stat"><div class="val">${fmtMoney(d.entregaCents)}</div><div class="lbl">Entrega</div></div>
+              <div class="admin-stat"><div class="val">${fmtMoney(d.comisionCents)}</div><div class="lbl">Comisión</div></div>
+              <div class="admin-stat"><div class="val">${fmtMoney(d.ingresoCents)}</div><div class="lbl">Ingreso</div></div>
+              <div class="admin-stat"><div class="val">${fmtMoney(d.materiaPrimaCents)}</div><div class="lbl">Materia prima</div></div>
+              <div class="admin-stat"><div class="val" style="color:var(--green);">${fmtMoney(d.totalCents)}</div><div class="lbl">Total sin IVA</div></div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      `}
+      `}
 
       <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:6px;">
         <div style="font-size:11.5px;font-weight:700;color:var(--muted);">PRECIO DEL CROISSANT</div>
-        <span style="font-size:11.5px;line-height:1.4;color:var(--muted);">Es un solo valor fijo, igual para todas las semanas. Con esto se arman las ventas de croissants que llegan de Cocina (se muestran aparte, en Resumen).</span>
+        <span style="font-size:11.5px;line-height:1.4;color:var(--muted);">Es un solo valor fijo — así Cocina muestra el total a cobrar por un croissant vendido en el momento (sin pedido previo).</span>
         <input id="admin-croissant-price" type="number" inputmode="decimal" step="0.01" min="0" value="${croissantPriceVal}" placeholder="0.00">
         <button onclick="saveAdminCroissantPrice()" class="pill-btn" ${state.adminCroissantPriceSaving ? 'disabled' : ''}>${state.adminCroissantPriceSaving ? 'Guardando…' : 'Guardar precio del croissant'}</button>
         ${state.adminCroissantPriceSaved ? `<div style="display:flex;align-items:center;gap:6px;justify-content:center;">${icon('check', { w: 14, h: 14, stroke: 'var(--green)', sw: 2.2 })}<span style="font-size:12px;color:var(--green);">Guardado.</span></div>` : ''}
       </div>
 
-      <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:8px;">
-        <div style="font-size:11.5px;font-weight:700;color:var(--muted);">AVISO A CLIENTES</div>
-        ${state.adminNotifSent ? `
-        ${state.adminNotifSentCount > 0 ? `
-        <div style="display:flex;align-items:center;gap:6px;">${icon('check', { w: 14, h: 14, stroke: 'var(--green)', sw: 2.2 })}<span style="font-size:12.5px;color:var(--green);">Enviada a ${state.adminNotifSentCount} dispositivo(s) activado(s).</span></div>
-        ` : `
-        <span style="font-size:12.5px;color:var(--amber-text);">No se mandó a ningún dispositivo — ${state.adminNotifTargetLabel ? esc(state.adminNotifTargetLabel) + ' todavía no activa' : 'ningún cliente tiene activadas'} las notificaciones.</span>
-        `}
-        <button onclick="reiniciarNotifMasiva()" style="font-size:12.5px;font-weight:700;color:var(--green);align-self:flex-start;">Mandar otra</button>
-        ` : `
-        <span style="font-size:11.5px;line-height:1.4;color:var(--muted);">Manda una notificación a todos los clientes que ya la tengan activada en su teléfono (Perfil > Cuenta > Notificaciones), o elige uno solo abajo para avisarle algo puntual a esa persona. No le llega a quien no la haya activado, y no se puede deshacer una vez enviada.</span>
-        <select id="admin-notif-cliente">
-          <option value="">Todos los clientes</option>
-          ${(data.customers || []).map((c) => `<option value="${c.id}">${esc(c.name)} — ${esc(c.email)}</option>`).join('')}
-        </select>
-        <input id="admin-notif-titulo" type="text" maxlength="40" placeholder="Título (opcional — por defecto ZANO)">
-        <textarea id="admin-notif-mensaje" placeholder="Ej. 2x1 en Dátiles Reese's solo hoy — pide tu semana antes de que se acabe"></textarea>
-        ${state.adminNotifError ? `<span style="font-size:11.5px;color:var(--danger);">${esc(state.adminNotifError)}</span>` : ''}
-        ${state.adminNotifConfirmOpen ? `
-        <div style="display:flex;flex-direction:column;gap:8px;background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:10px;padding:10px;">
-          <span style="font-size:11.5px;line-height:1.4;color:var(--amber-text);">¿Seguro? Esto le llega de inmediato a ${state.adminNotifTargetId ? esc(state.adminNotifTargetLabel) : 'TODOS los clientes con notificaciones activadas'}.</span>
-          <div style="display:flex;gap:8px;">
-            <button onclick="enviarNotificacionMasiva()" ${state.adminNotifSending ? 'disabled' : ''} style="flex:1;padding:10px;border-radius:10px;font-size:12.5px;font-weight:700;background:${ACCENT};color:var(--on-accent);">${state.adminNotifSending ? 'Enviando…' : (state.adminNotifTargetId ? 'Sí, enviar' : 'Sí, enviar a todos')}</button>
-            <button onclick="setState({adminNotifConfirmOpen:false})" style="flex:1;padding:10px;border-radius:10px;font-size:12.5px;font-weight:700;background:var(--chip);color:var(--text);">Cancelar</button>
-          </div>
-        </div>
-        ` : `
-        <button onclick="pedirConfirmacionNotifMasiva()" class="pill-btn">Enviar</button>
-        `}
-        `}
-      </div>
-
-      <div>
-        <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:6px;">SEMANA (Ganancia bruta)</div>
-        ${renderAdminWeekPicker(data)}
-      </div>
-
-      ${!selectedWeek ? `<p style="margin:0;font-size:12.5px;color:var(--muted2);">Elige una semana con pedidos pagados para registrarle gastos.</p>` : `
-      <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:2px;">
-        <div style="font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:6px;">CALCULADOS SOLOS, POR PLATILLO VENDIDO</div>
-        <span style="font-size:11px;line-height:1.4;color:var(--muted2);margin-bottom:6px;">De cada platillo vendido se reparten siempre $70: $20 sueldo del jefe, $20 sueldo de los cocineros, $10 comisión al instituto y $20 pago de inversión — el resto del precio es Ingredientes.</span>
-        <div class="admin-table-row"><span style="font-size:12.5px;color:var(--text);">Ingredientes</span><span style="font-size:12.5px;font-weight:700;color:var(--text);">${fmtMoney(week ? week.ingredientesAutoCents : 0)}</span></div>
-        <div class="admin-table-row"><span style="font-size:12.5px;color:var(--text);">Sueldo del jefe</span><span style="font-size:12.5px;font-weight:700;color:var(--text);">${fmtMoney(week ? week.sueldoJefeCents : 0)}</span></div>
-        <div class="admin-table-row"><span style="font-size:12.5px;color:var(--text);">Sueldo de los cocineros</span><span style="font-size:12.5px;font-weight:700;color:var(--text);">${fmtMoney(week ? week.sueldoCocinerosCents : 0)}</span></div>
-        <div class="admin-table-row"><span style="font-size:12.5px;color:var(--text);">Comisión al instituto</span><span style="font-size:12.5px;font-weight:700;color:var(--text);">${fmtMoney(week ? week.comisionInstitutoCents : 0)}</span></div>
-        <div class="admin-table-row"><span style="font-size:12.5px;color:var(--text);">Pago de inversión</span><span style="font-size:12.5px;font-weight:700;color:var(--text);">${fmtMoney(week ? week.pagoInversionCents : 0)}</span></div>
-      </div>
-
-      <div style="display:flex;flex-direction:column;gap:6px;">
-        <label style="font-size:12.5px;font-weight:600;color:var(--text);">Otros gastos ($) <span style="font-weight:400;color:var(--muted2);">— transporte, gas, etc.</span></label>
-        <input id="admin-cost-otros" type="number" inputmode="decimal" step="0.01" min="0" value="${otrosVal}" placeholder="0.00">
-      </div>
-      <div style="display:flex;flex-direction:column;gap:6px;">
-        <label style="font-size:12.5px;font-weight:600;color:var(--text);">Notas (opcional)</label>
-        <textarea id="admin-cost-notas" placeholder="Ej. compré de más para la próxima semana">${esc(notasVal)}</textarea>
-      </div>
-
-      <button onclick="saveAdminCost()" class="pill-btn" ${state.adminCostSaving ? 'disabled' : ''}>${state.adminCostSaving ? 'Guardando…' : 'Guardar otros gastos'}</button>
-      ${state.adminCostSaved ? `<div style="display:flex;align-items:center;gap:6px;justify-content:center;">${icon('check', { w: 14, h: 14, stroke: 'var(--green)', sw: 2.2 })}<span style="font-size:12px;color:var(--green);">Guardado.</span></div>` : ''}
-      `}
-    </div>
-  `;
-}
-
-function renderAdminHistorial(data) {
-  const weeks = data.weeks || [];
-  const costs = data.costs || [];
-  const croissants = data.croissants || [];
-  const metaRecuperacionCents = data.metaRecuperacionCents || 0;
-  const cumMap = cumulativePedidosPorSemana(weeks);
-
-  if (weeks.length === 0 && croissants.length === 0) {
-    return `<p style="margin:0;font-size:12.5px;color:var(--muted2);text-align:center;padding:24px 0;">Todavía no hay semanas con pedidos pagados ni croissants vendidos.</p>`;
-  }
-
-  return `
-    <div style="display:flex;flex-direction:column;gap:20px;">
-      <div style="display:flex;flex-direction:column;gap:14px;">
-        <div style="font-size:11.5px;font-weight:700;color:var(--muted);">VENTAS EN LÍNEA (con pedido previo)</div>
-        ${weeks.length === 0 ? `<p style="margin:0;font-size:12.5px;color:var(--muted2);">Todavía no hay semanas con pedidos pagados.</p>` : weeks.map((w) => {
-          const cost = costs.find((c) => c.weekStart === w.weekStart) || null;
-          const otrosGastosCents = cost ? cost.otrosGastosCents : 0;
-          const gastosSemana = gastosAutoCents(w) + otrosGastosCents;
-          const bruta = w.ventasCents - gastosSemana;
-          const pedidosAcumulados = cumMap[w.weekStart] || 0;
-          const neta = (20 * 100 * pedidosAcumulados) - metaRecuperacionCents;
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="font-size:11.5px;font-weight:700;color:var(--muted);">EDITAR COSTEO POR PLATILLO</div>
+        <span style="font-size:11.5px;line-height:1.4;color:var(--muted2);">Estos 6 números son los que se multiplican por los pedidos de cada semana, arriba. Cambia lo que necesites y toca "Guardar" en ese platillo.</span>
+        ${costos.length === 0 ? `<p style="margin:0;font-size:12.5px;color:var(--muted2);">Todavía no hay platillos con costeo capturado.</p>` : costos.map((c) => {
+          const safe = c.platillo.replace(/[^a-zA-Z0-9]/g, '_');
+          const saving = !!state.adminCostoSaving[c.platillo];
+          const saved = !!state.adminCostoSaved[c.platillo];
           return `
-            <div class="card" style="padding:14px;">
-              <div style="font-size:13.5px;font-weight:700;color:var(--text);margin-bottom:10px;">${esc(fmtWeekLabel(w.weekStart))}</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-                <div class="admin-stat"><div class="val">${fmtMoney(w.ventasCents)}</div><div class="lbl">Ventas</div></div>
-                <div class="admin-stat"><div class="val">${w.pedidosPagados}</div><div class="lbl">Pedidos pagados</div></div>
-                <div class="admin-stat"><div class="val" style="color:${bruta >= 0 ? 'var(--green)' : 'var(--danger)'};">${fmtMoney(bruta)}</div><div class="lbl">Ganancia bruta</div></div>
-                <div class="admin-stat"><div class="val" style="color:${neta >= 0 ? 'var(--green)' : 'var(--danger)'};">${fmtMoney(neta)}</div><div class="lbl">Ganancia neta (acum. a esa semana)</div></div>
-              </div>
-              <div style="margin-top:8px;font-size:11px;color:var(--muted2);">Pedidos pagados acumulados hasta esta semana: ${pedidosAcumulados}.</div>
-              ${!cost ? `<div style="margin-top:8px;font-size:11px;color:var(--muted2);">Sin "Otros gastos" capturados esta semana.</div>` : ''}
+          <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:8px;">
+            <div style="font-size:13px;font-weight:700;color:var(--text);">${esc(c.platillo)}</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div><label style="font-size:11px;color:var(--muted);">MdO</label><input id="costo-mdo-${safe}" type="number" inputmode="decimal" step="0.01" min="0" value="${(c.mdoCents / 100).toFixed(2)}"></div>
+              <div><label style="font-size:11px;color:var(--muted);">Entrega</label><input id="costo-entrega-${safe}" type="number" inputmode="decimal" step="0.01" min="0" value="${(c.entregaCents / 100).toFixed(2)}"></div>
+              <div><label style="font-size:11px;color:var(--muted);">Comisión</label><input id="costo-comision-${safe}" type="number" inputmode="decimal" step="0.01" min="0" value="${(c.comisionCents / 100).toFixed(2)}"></div>
+              <div><label style="font-size:11px;color:var(--muted);">Ingreso</label><input id="costo-ingreso-${safe}" type="number" inputmode="decimal" step="0.01" min="0" value="${(c.ingresoCents / 100).toFixed(2)}"></div>
+              <div><label style="font-size:11px;color:var(--muted);">Materia prima</label><input id="costo-materia-${safe}" type="number" inputmode="decimal" step="0.01" min="0" value="${(c.materiaPrimaCents / 100).toFixed(2)}"></div>
+              <div><label style="font-size:11px;color:var(--muted);">Total sin IVA</label><input id="costo-total-${safe}" type="number" inputmode="decimal" step="0.01" min="0" value="${(c.totalCents / 100).toFixed(2)}"></div>
             </div>
+            <button onclick="saveCostoPlatillo(${esc(JSON.stringify(c.platillo))})" class="pill-btn" ${saving ? 'disabled' : ''}>${saving ? 'Guardando…' : 'Guardar'}</button>
+            ${saved ? `<div style="display:flex;align-items:center;gap:6px;justify-content:center;">${icon('check', { w: 14, h: 14, stroke: 'var(--green)', sw: 2.2 })}<span style="font-size:12px;color:var(--green);">Guardado.</span></div>` : ''}
+          </div>
           `;
         }).join('')}
-      </div>
-
-      <div style="display:flex;flex-direction:column;gap:14px;">
-        <div style="font-size:11.5px;font-weight:700;color:var(--muted);">VENTAS PRESENCIALES — CROISSANTS <span style="font-weight:400;color:var(--muted2);">(sin pedido previo, viene de Cocina)</span></div>
-        ${croissants.length === 0 ? `<p style="margin:0;font-size:12.5px;color:var(--muted2);">Todavía no hay croissants vendidos.</p>` : croissants.map((c) => `
-          <div class="card" style="padding:14px;">
-            <div style="font-size:13.5px;font-weight:700;color:var(--text);margin-bottom:10px;">${esc(fmtWeekLabel(c.weekStart))}</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-              <div class="admin-stat"><div class="val">${c.efectivoQty}</div><div class="lbl">Vendidos en efectivo</div></div>
-              <div class="admin-stat"><div class="val">${c.tarjetaQty}</div><div class="lbl">Vendidos con tarjeta</div></div>
-              <div class="admin-stat" style="grid-column:1 / -1;"><div class="val">${fmtMoney(c.totalCents)}</div><div class="lbl">Ventas de croissants (${c.totalQty} en total)</div></div>
-            </div>
-          </div>
-        `).join('')}
       </div>
     </div>
   `;
@@ -3184,12 +3057,10 @@ function renderAdminHistorial(data) {
 function renderAdmin() {
   const data = state.adminData;
   const tabs = [
-    { key: 'resumen', label: 'Resumen' },
-    { key: 'clientes', label: 'Clientes' },
-    { key: 'platillos', label: 'Platillos' },
     { key: 'calendario', label: 'Entregas' },
-    { key: 'gastos', label: 'Gastos' },
-    { key: 'historial', label: 'Historial' }
+    { key: 'clientes', label: 'Clientes' },
+    { key: 'pedidos', label: 'Pedidos de la semana' },
+    { key: 'operativos', label: 'Gastos operativos' }
   ];
   return `
     <div style="display:flex;flex-direction:column;gap:16px;">
@@ -3219,12 +3090,10 @@ function renderAdmin() {
 
       ${!data ? `
       <div style="text-align:center;padding:40px 0;color:var(--muted2);font-size:13px;">${state.adminLoading ? 'Cargando…' : 'Sin datos todavía.'}</div>
-      ` : state.adminTab === 'resumen' ? renderAdminResumen(data)
-        : state.adminTab === 'clientes' ? renderAdminClientes(data)
-        : state.adminTab === 'platillos' ? renderAdminPlatillos(data)
-        : state.adminTab === 'calendario' ? renderAdminCalendario(data)
-        : state.adminTab === 'historial' ? renderAdminHistorial(data)
-        : renderAdminGastos(data)}
+      ` : state.adminTab === 'clientes' ? renderAdminClientes(data)
+        : state.adminTab === 'pedidos' ? renderAdminPedidos(data)
+        : state.adminTab === 'operativos' ? renderAdminOperativos(data)
+        : renderAdminCalendario(data)}
     </div>
   `;
 }
