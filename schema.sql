@@ -163,3 +163,44 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions (user_id);
+
+-- Costeo por platillo (Administración > Gastos operativos): 6 números por
+-- platillo — MdO (mano de obra), costo de entrega, comisión, ingreso,
+-- materia prima y el total sin IVA — que TÚ editas desde Administración.
+-- Reemplazan la regla vieja de "$70 fijos por platillo" (ya borrada):
+-- ahora cada platillo tiene su propio costeo. api/admin-data.js multiplica
+-- estos 6 números por cuántas veces se pidió cada platillo esa semana para
+-- armar "Pedidos de la semana" y "Gastos operativos".
+-- "platillo" es el nombre tal cual aparece en Administración — el Poke se
+-- guarda en 3 filas separadas (Atún/Camarón/Salmón) porque cuesta distinto
+-- según la proteína elegida (ver api/admin-data.js, nombreCosteo()).
+CREATE TABLE IF NOT EXISTS platillo_costos (
+  id SERIAL PRIMARY KEY,
+  platillo TEXT NOT NULL UNIQUE,
+  mdo_cents INTEGER NOT NULL DEFAULT 0,
+  entrega_cents INTEGER NOT NULL DEFAULT 0,
+  comision_cents INTEGER NOT NULL DEFAULT 0,
+  ingreso_cents INTEGER NOT NULL DEFAULT 0,
+  materia_prima_cents INTEGER NOT NULL DEFAULT 0,
+  total_cents INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Primera carga, tomada de la foto del costeo que mandaste — después la
+-- puedes editar tú mismo desde Administración > Gastos operativos en
+-- cualquier momento (esto solo rellena un punto de partida; si ya existe
+-- una fila con ese nombre, no la vuelve a tocar, así que correr esto de
+-- nuevo nunca te borra una edición que ya hiciste).
+INSERT INTO platillo_costos (platillo, mdo_cents, entrega_cents, comision_cents, ingreso_cents, materia_prima_cents, total_cents) VALUES
+  ('Huevos Americanos', 2000, 2500, 1000, 1500, 7400, 15000),
+  ('Huevos Rancheros',  2000, 2500, 1000, 1500, 10500, 17500),
+  ('Ensalada César',    2000, 2500, 1000, 1500, 9800, 17000),
+  ('Pasta Alfredo',     2000, 2500, 1000, 1500, 8600, 16000),
+  ('Poke Atún',         2600, 2500, 1000, 1500, 13300, 20500),
+  ('Poke Camarón',      2000, 2500, 1000, 1500, 10600, 17600),
+  ('Poke Salmón',       2000, 2500, 1000, 1500, 17200, 24200),
+  ('Waffles Especiales', 500, 700, 500, 500, 6200, 8500),
+  ('Yogurt con Granola', 500, 1000, 500, 500, 7500, 10000),
+  ('Dátiles Reese''s',   500, 500, 500, 0, 2800, 5000),
+  ('+1 Dátiles',         0, 0, 0, 0, 0, 1100)
+ON CONFLICT (platillo) DO NOTHING;
