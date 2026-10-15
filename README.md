@@ -224,7 +224,7 @@ Mientras no agregues `VAPID_PRIVATE_KEY`, la app sigue funcionando normal — el
 
 ### Mandar un aviso a clientes (ej. una promoción, o algo puntual a uno solo)
 
-En Administración → Gastos, hasta abajo del todo hay una tarjeta "Aviso a clientes". Ahí eliges, en el selector, si es para **todos los clientes** o para **uno solo** (aparecen todos por nombre y correo, igual que en la pestaña Clientes) — útil, por ejemplo, para avisarle algo puntual solo a esa persona en vez de a todos. Escribes un título (opcional) y el mensaje, tocas "Enviar", confirmas una vez más (no se puede deshacer) y le llega esa misma notificación, de inmediato, a quien elegiste (o a todos) — solo a quien ya tenga notificaciones activadas en su teléfono, a nadie más. Si el cliente elegido todavía no las ha activado, te avisa que no le llegó a nadie en vez de decir "Enviada" sin que sea cierto. No hace falta configurar nada aparte de lo de arriba (`VAPID_PRIVATE_KEY`).
+En Administración → Clientes, hasta arriba hay una tarjeta "Aviso a clientes". Ahí eliges, en el selector, si es para **todos los clientes** o para **uno solo** (aparecen todos por nombre y correo) — útil, por ejemplo, para avisarle algo puntual solo a esa persona en vez de a todos. Escribes un título (opcional) y el mensaje, tocas "Enviar", confirmas una vez más (no se puede deshacer) y le llega esa misma notificación, de inmediato, a quien elegiste (o a todos) — solo a quien ya tenga notificaciones activadas en su teléfono, a nadie más. Si el cliente elegido todavía no las ha activado, te avisa que no le llegó a nadie en vez de decir "Enviada" sin que sea cierto. No hace falta configurar nada aparte de lo de arriba (`VAPID_PRIVATE_KEY`).
 
 ## Eliminar la cuenta de un cliente
 
@@ -232,11 +232,27 @@ En Administración → Clientes, cada cliente tiene un botón **"Eliminar cuenta
 
 No se puede eliminar una cuenta sin escribir el mensaje del correo — es a propósito, para que ningún cliente se quede sin saber por qué desapareció su cuenta. Si el correo no se llega a mandar por algún motivo (por ejemplo, se acabó la cuota mensual de EmailJS), la cuenta se borra igual y te avisa que el correo no salió, para que lo puedas avisar tú por otro medio. Usa el mismo EmailJS que ya tienes configurado para los demás correos a clientes — no hace falta configurar nada nuevo.
 
+## Administración: Pedidos de la semana y Gastos operativos
+
+Administración se reorganizó por tu pedido: ahora son 4 pestañas — **Entregas**, **Clientes**, **Pedidos de la semana** y **Gastos operativos**. Se borraron Resumen, Platillos, Gastos e Historial, junto con todas sus fórmulas viejas (Ganancia bruta/neta, el reparto fijo de $70 por platillo, "Otros gastos" y "valor de referencia") — ya no existen ni en el código.
+
+- **Pedidos de la semana**: elige la semana (arriba) y ves cada platillo pedido esa semana con cuántas veces se pidió. Tocas un platillo y se despliega quién lo pidió (nombre, día e institución). Hasta abajo, el total de pedidos de esa semana.
+- **Gastos operativos**: para la misma semana, el total de MdO, costo de entrega, comisión, ingreso, materia prima y total sin IVA — sumando todos los platillos — y abajo el desglose de esos mismos 6 números por cada platillo. Hasta el final de la pestaña puedes **editar el costeo de cada platillo** (esos 6 números) cuando necesites cambiarlos — no hace falta pedírmelo a mí, se guarda directo desde ahí.
+
+El Poke se separó en 3 filas de costeo (**Poke Atún**, **Poke Camarón**, **Poke Salmón**) porque cuesta distinto según la proteína — aunque en el pedido del cliente se siga guardando como "Poke", la app ya sabe distinguirlos por el ingrediente elegido.
+
+**Importante — hace falta correr `schema.sql` otra vez** (SQL Editor de Neon, el archivo completo) para crear la tabla nueva `platillo_costos`, donde vive el costeo de cada platillo. Es segura de volver a correr, no te borra nada de lo que ya tienes. La primera carga de esa tabla usa los números de la foto que me mandaste — dos filas las metí con mi mejor lectura porque se veían borrosas en la foto (**Dátiles Reese's** y **+1 Dátiles**): entra a Gastos operativos y revisa que esos dos queden como tú los tenías, el resto ya lo confirmaste y están tal cual.
+
+**Dos cosas que se movieron, no se borraron:**
+- "Precio del croissant" (el valor fijo que usa Cocina para mostrar el total a cobrar) ahora se edita desde Gastos operativos en vez de la vieja pestaña Gastos.
+- El conteo de croissants vendidos en Cocina sigue funcionando exactamente igual que antes (los botones de Efectivo/Tarjeta en el panel de Cocina) — lo único que cambió es que ya no se ve un reporte semanal de esas ventas en Administración, porque ese reporte vivía en Resumen/Historial, que se borraron. Si lo quieres de vuelta en algún lado, dime y se lo agrego a Gastos operativos.
+
 ## Qué falta / qué revisar
 
 - Los 7 platillos de "Bebidas, Snacks y Cheat Meals" (Yogurt Griego, Bowl de Frutas, Postres y Snacks, Jugo Verde, Jugo de Naranja, Vampiro, Toronja) siguen con precio `[PRECIO]` — en cuanto me mandes su costeo los lleno.
 - **Aguacate**: quedó en $10.66 (el valor del costeo más reciente y completo del Poke, con 130g). Tu instrucción anterior había sido $12.30 — avísame si ese era un margen intencional o si nos quedamos con el $10.66 del costeo.
 - **Tarjetas guardadas (opcional)**: nuevo — para que la app deje guardar tarjetas, falta que pongas tu Public Key de Mercado Pago en `index.html` (`MERCADOPAGO_PUBLIC_KEY`) — ver la sección "Tarjetas guardadas (opcional)" más arriba. Mientras no la pongas, todo sigue funcionando normal, solo sin esa opción extra.
 - **Notificaciones push**: nuevo — falta que agregues `VAPID_PRIVATE_KEY` en las variables de entorno de Vercel (te paso el valor por chat) — ver la sección "Notificaciones push a clientes" más arriba. También hace falta correr en tu base de datos (SQL Editor de Neon) la parte nueva de `schema.sql` que crea la tabla `push_subscriptions` — es segura de volver a correr completa, no borra nada de lo que ya tienes.
+- **Costeo por platillo**: nuevo — hace falta correr `schema.sql` otra vez para crear la tabla `platillo_costos` — ver la sección de arriba "Administración: Pedidos de la semana y Gastos operativos".
 
 Cualquier ajuste de precios, macros o pantallas, mándamelo y actualizo el archivo.
